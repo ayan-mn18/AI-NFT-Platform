@@ -1,6 +1,54 @@
 import { Button } from "@/components/ui/button"
 import { Sparkles, Wallet } from "lucide-react"
 import { useNavigate } from "react-router-dom"
+import { useEffect, useState, useRef } from "react"
+
+const AnimatedNumber = ({
+  value,
+  start = 0,
+  duration = 2000,
+  suffix = "",
+  decimals = 0
+}: {
+  value: number,
+  start?: number,
+  duration?: number,
+  suffix?: string,
+  decimals?: number
+}) => {
+  const [displayValue, setDisplayValue] = useState(start)
+  const startTimeRef = useRef<number | null>(null)
+  const requestRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const animate = (time: number) => {
+      if (!startTimeRef.current) startTimeRef.current = time
+      const progress = Math.min((time - startTimeRef.current) / duration, 1)
+
+      // Easing function (easeOutQuart)
+      const easeOut = 1 - Math.pow(1 - progress, 4)
+
+      const current = start + (value - start) * easeOut
+      setDisplayValue(current)
+
+      if (progress < 1) {
+        requestRef.current = requestAnimationFrame(animate)
+      }
+    }
+
+    requestRef.current = requestAnimationFrame(animate)
+
+    return () => {
+      if (requestRef.current) cancelAnimationFrame(requestRef.current)
+    }
+  }, [value, start, duration])
+
+  return (
+    <span>
+      {displayValue.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}{suffix}
+    </span>
+  )
+}
 
 function LandingPage() {
   const navigate = useNavigate()
@@ -59,7 +107,7 @@ function LandingPage() {
           {/* Description */}
           <p className="text-lg md:text-xl text-neutral-400 max-w-2xl mx-auto leading-relaxed">
             AuraMint is the premier AI-powered platform for Web3 enthusiasts.
-            Generate, mint, and trade unique digital assets with zero gas fees on our L2.
+            Generate, mint, and trade unique digital assets with zero gas fees.
           </p>
 
           {/* CTA Buttons */}
@@ -85,15 +133,21 @@ function LandingPage() {
           {/* Stats / Social Proof */}
           <div className="pt-12 grid grid-cols-2 md:grid-cols-3 gap-8 text-center border-t border-white/5 mt-12">
             <div>
-              <div className="text-2xl font-bold text-white">10k+</div>
+              <div className="text-2xl font-bold text-white">
+                <AnimatedNumber value={10000} suffix="+" />
+              </div>
               <div className="text-sm text-neutral-500">NFTs Minted</div>
             </div>
             <div>
-              <div className="text-2xl font-bold text-white">5k+</div>
+              <div className="text-2xl font-bold text-white">
+                <AnimatedNumber value={5000} suffix="+" />
+              </div>
               <div className="text-sm text-neutral-500">Artists</div>
             </div>
             <div className="hidden md:block">
-              <div className="text-2xl font-bold text-white">0.00 ETH</div>
+              <div className="text-2xl font-bold text-white">
+                <AnimatedNumber start={100} value={0} decimals={2} suffix=" ETH" />
+              </div>
               <div className="text-sm text-neutral-500">Gas Fees</div>
             </div>
           </div>
