@@ -23,8 +23,8 @@ export function GridBackground() {
     window.addEventListener('resize', resize)
     resize()
 
-    const gridSize = 40
-    const speed = 6 // Increased speed
+    const gridSize = 60
+    const speed = 4 // Increased speed
     const particleCount = 2 // Only 2 particles
 
     interface Particle {
@@ -49,6 +49,11 @@ export function GridBackground() {
 
       const row = startRow + Math.floor(Math.random() * bandHeightRows)
 
+      // Width limits: Center 60%
+      const gridWidth = width * 0.6
+      const startX = (width - gridWidth) / 2
+      const endX = startX + gridWidth
+
       // Index 0: Left to Right (1)
       // Index 1: Right to Left (-1)
       const dir = index % 2 === 0 ? 1 : -1
@@ -56,8 +61,8 @@ export function GridBackground() {
 
       return {
         x: reset
-          ? (dir === 1 ? -gridSize : width + gridSize)
-          : Math.random() * width,
+          ? (dir === 1 ? startX - gridSize : endX + gridSize)
+          : startX + Math.random() * gridWidth,
         y: row * gridSize,
         vx: velocity,
         vy: 0,
@@ -77,21 +82,28 @@ export function GridBackground() {
       // Clear with transparency for trail effect? No, clean clear for this style
       ctx.clearRect(0, 0, width, height)
 
+      const gridWidth = width * 0.6
+      const startX = (width - gridWidth) / 2
+      const endX = startX + gridWidth
+
       // Draw Grid
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)'
       ctx.lineWidth = 1
 
-      for (let x = 0; x <= width; x += gridSize) {
+      // Vertical lines
+      const firstLineX = Math.ceil(startX / gridSize) * gridSize
+      for (let x = firstLineX; x <= endX; x += gridSize) {
         ctx.beginPath()
         ctx.moveTo(x, 0)
         ctx.lineTo(x, height)
         ctx.stroke()
       }
 
+      // Horizontal lines
       for (let y = 0; y <= height; y += gridSize) {
         ctx.beginPath()
-        ctx.moveTo(0, y)
-        ctx.lineTo(width, y)
+        ctx.moveTo(startX, y)
+        ctx.lineTo(endX, y)
         ctx.stroke()
       }
 
@@ -174,8 +186,8 @@ export function GridBackground() {
         const maxY = (endRow + 2) * gridSize
 
         const isOutOfBounds =
-          (p.baseVx > 0 && p.x > width + 50) ||
-          (p.baseVx < 0 && p.x < -50) ||
+          (p.baseVx > 0 && p.x > endX + 50) ||
+          (p.baseVx < 0 && p.x < startX - 50) ||
           (p.y < minY) ||
           (p.y > maxY)
 
