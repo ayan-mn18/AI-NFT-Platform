@@ -28,12 +28,13 @@ const format = winston.format.combine(
   winston.format.errors({ stack: true }),
   config.logFormat === 'json'
     ? winston.format.json()
-    : winston.format.printf(
-        (info) =>
-          `${info.timestamp} ${info.level}: ${info.message}${
-            info.stack ? '\n' + info.stack : ''
-          }`
-      )
+    : winston.format.printf((info: any) => {
+        const { message, level, timestamp, ms, stack, ...meta } = info;
+        const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
+        return `${timestamp} ${level}: ${message}${metaStr}${
+          stack ? '\n' + stack : ''
+        }`;
+      })
 );
 
 const transports = [
@@ -41,12 +42,13 @@ const transports = [
   new winston.transports.Console({
     format: winston.format.combine(
       winston.format.colorize({ all: true }),
-      winston.format.printf(
-        (info) =>
-          `${info.timestamp} ${info.level}: ${info.message}${
-            info.ms ? ` [${info.ms}]` : ''
-          }${info.stack ? '\n' + info.stack : ''}`
-      )
+      winston.format.printf((info: any) => {
+        const { message, level, timestamp, ms, stack, ...meta } = info;
+        const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
+        return `${timestamp} ${level}: ${message}${metaStr}${ms ? ` [${ms}]` : ''}${
+          stack ? '\n' + stack : ''
+        }`;
+      })
     ),
   }),
 

@@ -17,6 +17,7 @@ export const initializeEmailService = async () => {
   try {
     if (config.emailService === 'sendgrid') {
       // SendGrid configuration
+      logger.info('Using SendGrid email service');
       if (!config.sendgridApiKey) {
         throw new Error('SENDGRID_API_KEY not configured');
       }
@@ -30,6 +31,7 @@ export const initializeEmailService = async () => {
         },
       });
     } else {
+      logger.info('Using SMTP email service');
       // SMTP configuration
       if (!config.smtpHost || !config.smtpPort) {
         throw new Error('SMTP configuration not complete');

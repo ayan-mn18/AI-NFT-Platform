@@ -106,7 +106,7 @@ const config: EnvConfig = {
   jwtRefreshExpiration: getEnv('JWT_REFRESH_EXPIRATION', '30d'),
 
   // Email
-  emailService: getEnv('EMAIL_SERVICE', 'sendgrid'),
+  emailService: getEnv('EMAIL_SERVICE', ''),
   emailFrom: getEnv('EMAIL_FROM', 'ayanmansoori44@gmail.com'),
   sendgridApiKey: getEnv('SENDGRID_API_KEY', 'abc'),
   smtpHost: getEnv('SMTP_HOST', ''),

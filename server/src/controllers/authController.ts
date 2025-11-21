@@ -11,9 +11,11 @@
  */
 
 import { Response } from 'express';
-import { AuthenticatedRequest, RegisterRequest, AppError } from '../types';
+import { AuthenticatedRequest, RegisterRequest, VerifyEmailRequest, ResendOtpRequest, SignInRequest, AppError } from '../types';
 import logger from '../config/logger';
-import { registerUser } from '../services/authService';
+import { registerUser, verifyEmailUser, resendOtpEmail, signInUser, logoutUser } from '../services/authService';
+import { getTokenExpirationMs } from '../utils/jwtService';
+import config from '../config/env';
 
 /**
  * Register endpoint handler
@@ -76,69 +78,236 @@ export const register = async (req: AuthenticatedRequest, res: Response) => {
 };
 
 /**
- * Placeholder for verifyEmail controller
+ * Verify email with OTP endpoint handler
+ * POST /auth/verify-email
+ * 
+ * Accepts: email, otp (6-digit)
+ * Returns: 200 with user_id, email, email_verified, and auth cookie
+ * Errors: 404 (email not found), 400 (invalid/expired OTP), 500 (server error)
  */
 export const verifyEmail = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    logger.info('Verify Email endpoint called - not yet implemented');
-    res.status(501).json({
-      status: 'error',
-      message: 'Verify Email endpoint not yet implemented',
-      code: 'NOT_IMPLEMENTED',
+    const { email, otp } = req.body as VerifyEmailRequest;
+
+    logger.info('Verify Email endpoint called', { email });
+
+    // Call service
+    const result = await verifyEmailUser({
+      email,
+      otp,
+    });
+
+    // Set authentication cookie (same as signin)
+    const tokenExpirationMs = getTokenExpirationMs();
+    res.cookie('auth_token', result.token, {
+      httpOnly: true,
+      secure: config.nodeEnv === 'production',
+      sameSite: 'strict',
+      maxAge: tokenExpirationMs,
+      path: '/',
+    });
+
+    // Return success response (200 OK)
+    res.status(200).json({
+      status: 'success',
+      message: 'Email verified successfully. Welcome!',
+      data: {
+        user_id: result.user_id,
+        email: result.email,
+        email_verified: result.email_verified,
+      },
+    });
+
+    logger.info('Email verification successful', {
+      user_id: result.user_id,
+      email: result.email,
     });
   } catch (error) {
-    logger.error('Verify Email error', { error });
-    throw error;
+    logger.error('Verify Email endpoint error', { error });
+
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: 'error',
+        message: error.message,
+        code: error.code,
+        ...(error.field && { field: error.field }),
+        ...(error.details && { details: error.details }),
+      });
+    }
+
+    res.status(500).json({
+      status: 'error',
+      message: 'An unexpected error occurred',
+      code: 'INTERNAL_SERVER_ERROR',
+    });
   }
 };
 
 /**
- * Placeholder for signin controller
+ * Sign in endpoint handler
+ * POST /auth/signin
+ * 
+ * Accepts: email, password
+ * Returns: 200 with user_id, email, user_type, email_verified, and auth cookie
+ * Errors: 401 (invalid credentials, locked account), 403 (unverified email), 500 (server error)
  */
 export const signin = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    logger.info('Sign In endpoint called - not yet implemented');
-    res.status(501).json({
-      status: 'error',
-      message: 'Sign In endpoint not yet implemented',
-      code: 'NOT_IMPLEMENTED',
+    const { email, password } = req.body as SignInRequest;
+
+    logger.info('Sign In endpoint called', { email });
+
+    // Call service
+    const result = await signInUser({
+      email,
+      password,
+    });
+
+    // Set authentication cookie
+    res.cookie('auth_token', result.token, {
+      httpOnly: true,
+      secure: config.nodeEnv === 'production',
+      sameSite: 'strict',
+      maxAge: result.expiresIn,
+      path: '/',
+    });
+
+    // Return success response (200 OK)
+    res.status(200).json({
+      status: 'success',
+      message: 'Sign in successful.',
+      data: {
+        user_id: result.user_id,
+        email: result.email,
+        user_type: result.user_type,
+        email_verified: result.email_verified,
+      },
+    });
+
+    logger.info('User signed in successfully', {
+      user_id: result.user_id,
+      email: result.email,
     });
   } catch (error) {
-    logger.error('Sign In error', { error });
-    throw error;
+    logger.error('Sign In endpoint error', { error });
+
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: 'error',
+        message: error.message,
+        code: error.code,
+        ...(error.field && { field: error.field }),
+        ...(error.details && { details: error.details }),
+      });
+    }
+
+    res.status(500).json({
+      status: 'error',
+      message: 'An unexpected error occurred',
+      code: 'INTERNAL_SERVER_ERROR',
+    });
   }
 };
 
 /**
- * Placeholder for resendOtp controller
+ * Resend OTP endpoint handler
+ * POST /auth/resend-otp
+ * 
+ * Accepts: email
+ * Returns: 200 with email and message
+ * Errors: 404 (email not found), 400 (already verified), 429 (rate limited), 500 (server error)
  */
 export const resendOtp = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    logger.info('Resend OTP endpoint called - not yet implemented');
-    res.status(501).json({
-      status: 'error',
-      message: 'Resend OTP endpoint not yet implemented',
-      code: 'NOT_IMPLEMENTED',
+    const { email } = req.body as ResendOtpRequest;
+
+    logger.info('Resend OTP endpoint called', { email });
+
+    // Call service
+    const result = await resendOtpEmail({
+      email,
     });
+
+    // Return success response (200 OK)
+    res.status(200).json({
+      status: 'success',
+      message: result.message,
+      data: {
+        email: result.email,
+      },
+    });
+
+    logger.info('OTP resent successfully', { email });
   } catch (error) {
-    logger.error('Resend OTP error', { error });
-    throw error;
+    logger.error('Resend OTP endpoint error', { error });
+
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: 'error',
+        message: error.message,
+        code: error.code,
+        ...(error.field && { field: error.field }),
+        ...(error.details && { details: error.details }),
+      });
+    }
+
+    res.status(500).json({
+      status: 'error',
+      message: 'An unexpected error occurred',
+      code: 'INTERNAL_SERVER_ERROR',
+    });
   }
 };
 
 /**
- * Placeholder for logout controller
+ * Logout endpoint handler
+ * POST /auth/logout
+ * 
+ * Accepts: email (optional, for logging)
+ * Returns: 200 with success message
+ * Errors: 500 (server error)
  */
 export const logout = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    logger.info('Logout endpoint called - not yet implemented');
-    res.status(501).json({
-      status: 'error',
-      message: 'Logout endpoint not yet implemented',
-      code: 'NOT_IMPLEMENTED',
+    const email = req.user?.email;
+
+    logger.info('Logout endpoint called', { email });
+
+    // Call service to update last activity (optional)
+    if (email) {
+      await logoutUser(email);
+    }
+
+    // Clear authentication cookie
+    res.clearCookie('auth_token', {
+      httpOnly: true,
+      secure: config.nodeEnv === 'production',
+      sameSite: 'strict',
+      path: '/',
     });
+
+    // Return success response (200 OK)
+    res.status(200).json({
+      status: 'success',
+      message: 'Logout successful.',
+    });
+
+    logger.info('User logged out successfully', { email });
   } catch (error) {
-    logger.error('Logout error', { error });
-    throw error;
+    logger.error('Logout endpoint error', { error });
+
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: 'error',
+        message: error.message,
+        code: error.code,
+      });
+    }
+
+    res.status(500).json({
+      status: 'error',
+      message: 'An unexpected error occurred',
+      code: 'INTERNAL_SERVER_ERROR',
+    });
   }
 };

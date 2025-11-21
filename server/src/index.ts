@@ -18,7 +18,8 @@ import {
 } from './middleware';
 
 // Route imports
-import { authRoutes } from './routes';
+import { authRoutes, userRoutes } from './routes';
+import { initializeEmailService, sendOtpEmail } from './utils';
 
 const app: Express = express();
 
@@ -80,6 +81,10 @@ app.get('/api', (req: Request, res: Response) => {
   });
 });
 
+app.get('/api/sendOtp', async (req: Request, res: Response) => {
+  await sendOtpEmail('deplodevshare@gmail.com', '123456', 'Test User');
+});
+
 /**
  * ============================================
  * ROUTE MOUNTING
@@ -88,6 +93,7 @@ app.get('/api', (req: Request, res: Response) => {
 
 // Auth routes - No authentication required for register/signin/verify-email
 app.use('/api/auth', authRoutes);
+app.use('/api/user', userRoutes);
 
 // User routes will be mounted here (Protected routes)
 // app.use('/api/user', verifyAuth, userRoutes);
@@ -133,6 +139,7 @@ const startServer = async () => {
     // Test Supabase connection
     logger.info('Testing Supabase connection...');
     const isConnected = await testSupabaseConnection();
+    await initializeEmailService();
 
     if (!isConnected) {
       logger.warn(
