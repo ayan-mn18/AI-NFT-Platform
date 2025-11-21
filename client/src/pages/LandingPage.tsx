@@ -3,6 +3,7 @@ import { Sparkles, Wallet, User } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { useEffect, useState, useRef } from "react"
 import { useAuth } from "@/context/AuthContext"
+import { GridBackground } from "@/components/ui/grid-background"
 
 const AnimatedNumber = ({
   value,
@@ -56,12 +57,13 @@ function LandingPage() {
   const { isAuthenticated } = useAuth()
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-white selection:bg-purple-500/30 overflow-hidden font-sans">
-      {/* Background Gradients */}
-      <div className="fixed inset-0 z-0 pointer-events-none">
+    <div className="min-h-screen bg-neutral-950 text-white selection:bg-purple-500/30 overflow-hidden font-sans relative">
+      <GridBackground />
+
+      {/* Background Gradients - Made more subtle */}
+      <div className="fixed inset-0 z-0 pointer-events-none opacity-40">
         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-purple-900/10 blur-[120px]" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-indigo-900/10 blur-[120px]" />
-        <div className="absolute top-[20%] left-[50%] -translate-x-1/2 w-[30%] h-[30%] rounded-full bg-purple-500/5 blur-[100px]" />
       </div>
 
       {/* Navbar (Minimal) */}
