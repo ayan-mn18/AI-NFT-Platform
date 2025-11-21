@@ -7,6 +7,8 @@ import NFTGenPage from "./pages/NFTGenPage"
 import RegisterPage from "./pages/RegisterPage"
 import LoginPage from "./pages/LoginPage"
 
+import ProfilePage from "./pages/ProfilePage"
+
 function App() {
   return (
     <BrowserRouter>
@@ -19,12 +21,11 @@ function App() {
           {/* Protected Routes */}
           <Route element={<ProtectedRoute />}>
             <Route path="/nft-gen" element={<NFTGenPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
           </Route>
         </Routes>
         <Toaster position="top-center" theme="dark" />
       </AuthProvider>
     </BrowserRouter>
   )
-}
-
-export default App
+} export default App

@@ -1,7 +1,8 @@
 import { Button } from "@/components/ui/button"
-import { Sparkles, Wallet } from "lucide-react"
+import { Sparkles, Wallet, User } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { useEffect, useState, useRef } from "react"
+import { useAuth } from "@/context/AuthContext"
 
 const AnimatedNumber = ({
   value,
@@ -52,6 +53,7 @@ const AnimatedNumber = ({
 
 function LandingPage() {
   const navigate = useNavigate()
+  const { isAuthenticated } = useAuth()
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white selection:bg-purple-500/30 overflow-hidden font-sans">
@@ -72,13 +74,24 @@ function LandingPage() {
             AuraMint
           </span>
         </div>
-        <Button
-          variant="ghost"
-          className="text-neutral-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
-          onClick={() => navigate('/register')}
-        >
-          Login / Sign Up
-        </Button>
+        {isAuthenticated ? (
+          <Button
+            variant="ghost"
+            className="text-neutral-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer gap-2"
+            onClick={() => navigate('/profile')}
+          >
+            <User className="w-4 h-4" />
+            Profile
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            className="text-neutral-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+            onClick={() => navigate('/register')}
+          >
+            Login / Sign Up
+          </Button>
+        )}
       </nav>
 
       {/* Hero Section */}

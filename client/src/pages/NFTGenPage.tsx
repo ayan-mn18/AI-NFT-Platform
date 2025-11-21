@@ -3,8 +3,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Sparkles, Send, Plus, MessageSquare, Settings, User } from "lucide-react"
+import { Sparkles, Send, Plus, MessageSquare, Settings, User, LogOut } from "lucide-react"
 import { useNavigate } from "react-router-dom"
+import { useAuth } from "@/context/AuthContext"
 
 interface Message {
   id: string
@@ -21,6 +22,7 @@ interface ChatSession {
 
 export default function NFTGenPage() {
   const navigate = useNavigate()
+  const { logout } = useAuth()
   const [input, setInput] = useState("")
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -101,14 +103,29 @@ export default function NFTGenPage() {
           </div>
         </ScrollArea>
 
-        <div className="p-4 border-t border-white/5">
-          <Button variant="ghost" className="w-full justify-start gap-2 text-neutral-400 hover:text-white">
+        <div className="p-4 border-t border-white/5 space-y-1">
+          <Button variant="ghost" className="w-full justify-start gap-2 text-neutral-400 hover:text-white cursor-pointer">
             <Settings className="w-4 h-4" />
             Settings
           </Button>
-          <Button variant="ghost" className="w-full justify-start gap-2 text-neutral-400 hover:text-white">
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-2 text-neutral-400 hover:text-white cursor-pointer"
+            onClick={() => navigate('/profile')}
+          >
             <User className="w-4 h-4" />
             Profile
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 cursor-pointer"
+            onClick={() => {
+              logout()
+              navigate('/login')
+            }}
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
           </Button>
         </div>
       </aside>
@@ -149,8 +166,8 @@ export default function NFTGenPage() {
                 <div className={`flex flex-col max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                   <div
                     className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${msg.role === 'user'
-                        ? 'bg-purple-600 text-white'
-                        : 'bg-white/5 border border-white/10 text-neutral-200'
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-white/5 border border-white/10 text-neutral-200'
                       }`}
                   >
                     {msg.content}
