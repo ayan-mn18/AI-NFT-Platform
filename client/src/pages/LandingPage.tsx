@@ -20,12 +20,16 @@ function LandingPage() {
           <div className="w-8 h-8 bg-linear-to-tr from-purple-600 to-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-purple-500/20">
             <Sparkles className="w-5 h-5 text-white" />
           </div>
-          <span className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-linear-to-r from-white to-neutral-400">
+          <span className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-linear-to-r from-white to-neutral-400 font-heading">
             AuraMint
           </span>
         </div>
-        <Button variant="ghost" className="text-neutral-400 hover:text-white hover:bg-white/5 transition-colors">
-          Connect Wallet
+        <Button
+          variant="ghost"
+          className="text-neutral-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+          onClick={() => navigate('/register')}
+        >
+          Login / Sign Up
         </Button>
       </nav>
 
@@ -42,7 +46,7 @@ function LandingPage() {
           </div>
 
           {/* Main Title */}
-          <h1 className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight">
+          <h1 className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight font-heading">
             <span className="bg-clip-text text-transparent bg-linear-to-b from-white via-white to-neutral-500">
               Mint the Future of
             </span>
