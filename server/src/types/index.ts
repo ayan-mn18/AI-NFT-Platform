@@ -209,3 +209,65 @@ export class AppError extends Error {
     this.name = 'AppError';
   }
 }
+
+/**
+ * File Upload Related Types
+ */
+export enum FileCategory {
+  PROFILE_PICTURES = 'profile-pictures',
+  NFT_IMAGES = 'nft-images',
+  DOCUMENTS = 'documents',
+  THUMBNAILS = 'thumbnails',
+  BANNERS = 'banners',
+}
+
+export interface FileUploadRequest {
+  category: FileCategory | string;
+  description?: string;
+}
+
+export interface FileMetadata {
+  file_id: string; // UUID
+  user_id: string;
+  original_filename: string;
+  s3_key: string; // Full path in S3
+  s3_url: string; // Public URL
+  file_size: number; // in bytes
+  mime_type: string;
+  category: string;
+  description?: string;
+  uploaded_at: Date;
+  is_deleted: boolean;
+}
+
+export interface UploadResponse {
+  status: 'success' | 'error';
+  message: string;
+  data?: {
+    file_id: string;
+    s3_url: string;
+    filename: string;
+    size: number;
+    mime_type: string;
+    uploaded_at: string;
+  };
+  code?: string;
+}
+
+export interface FileValidationError {
+  field: string;
+  message: string;
+}
+
+/**
+ * File Upload Error Codes
+ */
+export enum FileErrorCode {
+  FILE_TOO_LARGE = 'FILE_TOO_LARGE',
+  INVALID_FILE_TYPE = 'INVALID_FILE_TYPE',
+  UPLOAD_FAILED = 'UPLOAD_FAILED',
+  FILE_NOT_FOUND = 'FILE_NOT_FOUND',
+  INVALID_CATEGORY = 'INVALID_CATEGORY',
+  MISSING_FILE = 'MISSING_FILE',
+  INVALID_FILENAME = 'INVALID_FILENAME',
+}

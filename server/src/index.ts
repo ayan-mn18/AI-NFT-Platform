@@ -2,6 +2,7 @@ import 'express-async-errors';
 import express, { Express, Request, Response } from 'express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import multer from 'multer';
 
 // Configuration imports
 import config from './config/env';
@@ -18,8 +19,9 @@ import {
 } from './middleware';
 
 // Route imports
-import { authRoutes, userRoutes } from './routes';
+import { authRoutes, userRoutes, fileRoutes } from './routes';
 import { initializeEmailService, sendOtpEmail } from './utils';
+import { uploadFileToS3 } from './services/fileUploadService';
 
 const app: Express = express();
 
@@ -87,6 +89,20 @@ app.get('/api/sendOtp', async (req: Request, res: Response) => {
 
 /**
  * ============================================
+ * QUICK TEST ENDPOINT - FILE UPLOAD TO S3
+ * ============================================
+ */
+
+// Configure multer for test endpoint
+const uploadTest = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: config.maxFileSize,
+  },
+});
+
+/**
+ * ============================================
  * ROUTE MOUNTING
  * ============================================
  */
@@ -94,6 +110,7 @@ app.get('/api/sendOtp', async (req: Request, res: Response) => {
 // Auth routes - No authentication required for register/signin/verify-email
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/file', fileRoutes);
 
 // User routes will be mounted here (Protected routes)
 // app.use('/api/user', verifyAuth, userRoutes);

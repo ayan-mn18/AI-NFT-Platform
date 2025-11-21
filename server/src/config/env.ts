@@ -38,6 +38,15 @@ interface EnvConfig {
   redisUrl: string;
   redisPassword?: string;
 
+  // AWS S3
+  awsRegion: string;
+  awsAccessKeyId: string;
+  awsSecretAccessKey: string;
+  awsS3Bucket: string;
+  awsS3Url: string;
+  maxFileSize: number; // in bytes
+  allowedFileTypes: string[];
+
   // Logging
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   logFormat: 'json' | 'simple';
@@ -62,6 +71,7 @@ interface EnvConfig {
   enableEmailVerification: boolean;
   enableActivityLogging: boolean;
   enableTokenBlacklist: boolean;
+  enableFileUpload: boolean;
 }
 
 const getEnv = (key: string, defaultValue?: string): string => {
@@ -118,6 +128,15 @@ const config: EnvConfig = {
   redisUrl: getEnv('REDIS_URL', 'redis://localhost:6379'),
   redisPassword: getEnv('REDIS_PASSWORD', 'your-redis-password'),
 
+  // AWS S3
+  awsRegion: getEnv('AWS_REGION', 'us-east-1'),
+  awsAccessKeyId: getEnv('AWS_ACCESS_KEY_ID'),
+  awsSecretAccessKey: getEnv('AWS_SECRET_ACCESS_KEY'),
+  awsS3Bucket: getEnv('AWS_S3_BUCKET'),
+  awsS3Url: getEnv('AWS_S3_URL', ''),
+  maxFileSize: getEnvNumber('MAX_FILE_SIZE', 10 * 1024 * 1024), // 10MB default
+  allowedFileTypes: (process.env.ALLOWED_FILE_TYPES || 'image/jpeg,image/png,image/gif,image/webp,application/pdf').split(','),
+
   // Logging
   logLevel: (process.env.LOG_LEVEL || 'info') as any,
   logFormat: (process.env.LOG_FORMAT || 'json') as any,
@@ -142,6 +161,7 @@ const config: EnvConfig = {
   enableEmailVerification: getEnvBoolean('ENABLE_EMAIL_VERIFICATION', true),
   enableActivityLogging: getEnvBoolean('ENABLE_ACTIVITY_LOGGING', true),
   enableTokenBlacklist: getEnvBoolean('ENABLE_TOKEN_BLACKLIST', true),
+  enableFileUpload: getEnvBoolean('ENABLE_FILE_UPLOAD', true),
 };
 
 /**
