@@ -4,6 +4,17 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Sparkles, Loader2, LogIn } from "lucide-react"
 import { useNavigate, Link } from "react-router-dom"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import * as z from "zod"
+import { useAuth } from "@/context/AuthContext"
+
+const loginSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
+})
+
+type LoginFormValues = z.infer<typeof loginSchema>
 
 const FormLabel = ({ children, htmlFor }: { children: React.ReactNode, htmlFor?: string }) => (
   <label htmlFor={htmlFor} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-neutral-200">
@@ -13,22 +24,27 @@ const FormLabel = ({ children, htmlFor }: { children: React.ReactNode, htmlFor?:
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const { login } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
-  const [formData, setFormData] = useState({
-    email: "",
-    password: ""
+
+  const form = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+    },
   })
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const onSubmit = async (data: LoginFormValues) => {
     setIsLoading(true)
-
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false)
+    try {
+      await login({ email: data.email, password: data.password })
       navigate('/nft-gen')
-      // In real app, we would call POST /api/auth/signin here
-    }, 1500)
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -44,14 +60,14 @@ export default function LoginPage() {
         <div className="w-10 h-10 bg-linear-to-tr from-purple-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/20">
           <Sparkles className="w-6 h-6 text-white" />
         </div>
-        <span className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-linear-to-r from-white to-neutral-400">
+        <span className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-linear-to-r from-white to-neutral-400 font-heading">
           AuraMint
         </span>
       </div>
 
       <Card className="w-full max-w-md bg-neutral-900/50 border-white/10 backdrop-blur-xl relative z-10 shadow-2xl shadow-black/50">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center text-white">
+          <CardTitle className="text-2xl font-bold text-center text-white font-heading">
             Welcome back
           </CardTitle>
           <CardDescription className="text-center text-neutral-400">
@@ -59,18 +75,19 @@ export default function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
               <FormLabel htmlFor="email">Email</FormLabel>
               <Input
                 id="email"
                 type="email"
                 placeholder="john@example.com"
-                required
                 className="bg-neutral-950/50 border-white/10 focus-visible:ring-purple-500/50 text-white placeholder:text-neutral-600"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                {...form.register("email")}
               />
+              {form.formState.errors.email && (
+                <p className="text-xs text-red-400">{form.formState.errors.email.message}</p>
+              )}
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -81,16 +98,17 @@ export default function LoginPage() {
                 id="password"
                 type="password"
                 placeholder="••••••••"
-                required
                 className="bg-neutral-950/50 border-white/10 focus-visible:ring-purple-500/50 text-white placeholder:text-neutral-600"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                {...form.register("password")}
               />
+              {form.formState.errors.password && (
+                <p className="text-xs text-red-400">{form.formState.errors.password.message}</p>
+              )}
             </div>
 
             <Button
               type="submit"
-              className="w-full bg-purple-600 hover:bg-purple-700 text-white mt-6"
+              className="w-full bg-purple-600 hover:bg-purple-700 text-white mt-6 cursor-pointer"
               disabled={isLoading}
             >
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}

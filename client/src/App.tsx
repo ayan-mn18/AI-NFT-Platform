@@ -1,4 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom"
+import { Toaster } from "@/components/ui/sonner"
+import { AuthProvider } from "@/context/AuthContext"
+import ProtectedRoute from "@/components/ProtectedRoute"
 import LandingPage from "./pages/LandingPage"
 import NFTGenPage from "./pages/NFTGenPage"
 import RegisterPage from "./pages/RegisterPage"
@@ -7,12 +10,19 @@ import LoginPage from "./pages/LoginPage"
 function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/nft-gen" element={<NFTGenPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route path="/login" element={<LoginPage />} />
-      </Routes>
+      <AuthProvider>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/login" element={<LoginPage />} />
+
+          {/* Protected Routes */}
+          <Route element={<ProtectedRoute />}>
+            <Route path="/nft-gen" element={<NFTGenPage />} />
+          </Route>
+        </Routes>
+        <Toaster position="top-center" theme="dark" />
+      </AuthProvider>
     </BrowserRouter>
   )
 }

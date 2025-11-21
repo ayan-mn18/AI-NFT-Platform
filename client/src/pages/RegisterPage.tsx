@@ -9,8 +9,31 @@ import {
 } from "@/components/ui/input-otp"
 import { Sparkles, Loader2, ArrowRight, CheckCircle2 } from "lucide-react"
 import { useNavigate, Link } from "react-router-dom"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import * as z from "zod"
+import { useAuth } from "@/context/AuthContext"
 
-// Simple Label component if not exists in shadcn default install (it usually does but let's be safe or use standard)
+// Zod Schemas
+const registerSchema = z.object({
+  full_name: z.string().min(2, "Name must be at least 2 characters").optional(),
+  email: z.string().email("Invalid email address"),
+  password: z.string()
+    .min(8, "Password must be at least 8 characters")
+    .regex(/[A-Z]/, "Must contain at least one uppercase letter")
+    .regex(/[a-z]/, "Must contain at least one lowercase letter")
+    .regex(/[0-9]/, "Must contain at least one number")
+    .regex(/[^A-Za-z0-9]/, "Must contain at least one special character"),
+  user_type: z.enum(["buyer", "merchant"]),
+})
+
+const verifySchema = z.object({
+  otp: z.string().length(6, "OTP must be 6 digits"),
+})
+
+type RegisterFormValues = z.infer<typeof registerSchema>
+type VerifyFormValues = z.infer<typeof verifySchema>
+
 const FormLabel = ({ children, htmlFor }: { children: React.ReactNode, htmlFor?: string }) => (
   <label htmlFor={htmlFor} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-neutral-200">
     {children}
@@ -19,38 +42,62 @@ const FormLabel = ({ children, htmlFor }: { children: React.ReactNode, htmlFor?:
 
 export default function RegisterPage() {
   const navigate = useNavigate()
-  const [isLoading, setIsLoading] = useState(false)
+  const { register: registerUser, verifyEmail } = useAuth()
   const [step, setStep] = useState<'register' | 'verify'>('register')
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-    full_name: "",
-    user_type: "buyer" // Default to buyer (Collector)
+  const [registeredEmail, setRegisteredEmail] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+
+  // Register Form
+  const registerForm = useForm<RegisterFormValues>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      full_name: "",
+      email: "",
+      password: "",
+      user_type: "buyer",
+    },
   })
-  const [otp, setOtp] = useState("")
 
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault()
+  // Verify Form
+  const verifyForm = useForm<VerifyFormValues>({
+    resolver: zodResolver(verifySchema),
+    defaultValues: {
+      otp: "",
+    },
+  })
+
+  const onRegisterSubmit = async (data: RegisterFormValues) => {
     setIsLoading(true)
-
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false)
+    try {
+      await registerUser({
+        email: data.email,
+        password: data.password,
+        user_type: data.user_type,
+        full_name: data.full_name,
+      })
+      setRegisteredEmail(data.email)
       setStep('verify')
-      // In real app, we would call POST /api/auth/register here
-    }, 1500)
+    } catch (error) {
+      // Error is handled in AuthContext (toast)
+      console.error(error)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const handleVerify = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const onVerifySubmit = async (data: VerifyFormValues) => {
     setIsLoading(true)
-
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false)
+    try {
+      await verifyEmail({
+        email: registeredEmail,
+        otp: data.otp,
+      })
       navigate('/nft-gen')
-      // In real app, we would call POST /api/auth/verify-email here
-    }, 1500)
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -66,34 +113,36 @@ export default function RegisterPage() {
         <div className="w-10 h-10 bg-linear-to-tr from-purple-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/20">
           <Sparkles className="w-6 h-6 text-white" />
         </div>
-        <span className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-linear-to-r from-white to-neutral-400">
+        <span className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-linear-to-r from-white to-neutral-400 font-heading">
           AuraMint
         </span>
       </div>
 
       <Card className="w-full max-w-md bg-neutral-900/50 border-white/10 backdrop-blur-xl relative z-10 shadow-2xl shadow-black/50">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center text-white">
+          <CardTitle className="text-2xl font-bold text-center text-white font-heading">
             {step === 'register' ? 'Create an account' : 'Verify your email'}
           </CardTitle>
           <CardDescription className="text-center text-neutral-400">
             {step === 'register'
               ? 'Enter your details to start minting'
-              : `We sent a code to ${formData.email}`}
+              : `We sent a code to ${registeredEmail}`}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {step === 'register' ? (
-            <form onSubmit={handleRegister} className="space-y-4">
+            <form onSubmit={registerForm.handleSubmit(onRegisterSubmit)} className="space-y-4">
               <div className="space-y-2">
                 <FormLabel htmlFor="full_name">Full Name</FormLabel>
                 <Input
                   id="full_name"
                   placeholder="John Doe"
                   className="bg-neutral-950/50 border-white/10 focus-visible:ring-purple-500/50 text-white placeholder:text-neutral-600"
-                  value={formData.full_name}
-                  onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                  {...registerForm.register("full_name")}
                 />
+                {registerForm.formState.errors.full_name && (
+                  <p className="text-xs text-red-400">{registerForm.formState.errors.full_name.message}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <FormLabel htmlFor="email">Email</FormLabel>
@@ -101,11 +150,12 @@ export default function RegisterPage() {
                   id="email"
                   type="email"
                   placeholder="john@example.com"
-                  required
                   className="bg-neutral-950/50 border-white/10 focus-visible:ring-purple-500/50 text-white placeholder:text-neutral-600"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  {...registerForm.register("email")}
                 />
+                {registerForm.formState.errors.email && (
+                  <p className="text-xs text-red-400">{registerForm.formState.errors.email.message}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <FormLabel htmlFor="password">Password</FormLabel>
@@ -113,28 +163,30 @@ export default function RegisterPage() {
                   id="password"
                   type="password"
                   placeholder="••••••••"
-                  required
                   className="bg-neutral-950/50 border-white/10 focus-visible:ring-purple-500/50 text-white placeholder:text-neutral-600"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  {...registerForm.register("password")}
                 />
-                <p className="text-[10px] text-neutral-500">
-                  Must contain 8+ chars, 1 uppercase, 1 lowercase, 1 number, 1 special char.
-                </p>
+                {registerForm.formState.errors.password ? (
+                  <p className="text-xs text-red-400">{registerForm.formState.errors.password.message}</p>
+                ) : (
+                  <p className="text-[10px] text-neutral-500">
+                    Must contain 8+ chars, 1 uppercase, 1 lowercase, 1 number, 1 special char.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
                 <FormLabel>I am a...</FormLabel>
                 <div className="grid grid-cols-2 gap-4">
                   <div
-                    className={`cursor-pointer rounded-lg border p-4 flex flex-col items-center gap-2 transition-all ${formData.user_type === 'buyer' ? 'bg-purple-600/20 border-purple-500 text-white' : 'bg-neutral-950/30 border-white/10 text-neutral-400 hover:bg-white/5'}`}
-                    onClick={() => setFormData({ ...formData, user_type: 'buyer' })}
+                    className={`cursor-pointer rounded-lg border p-4 flex flex-col items-center gap-2 transition-all ${registerForm.watch("user_type") === 'buyer' ? 'bg-purple-600/20 border-purple-500 text-white' : 'bg-neutral-950/30 border-white/10 text-neutral-400 hover:bg-white/5'}`}
+                    onClick={() => registerForm.setValue("user_type", "buyer")}
                   >
                     <span className="font-medium">Collector</span>
                   </div>
                   <div
-                    className={`cursor-pointer rounded-lg border p-4 flex flex-col items-center gap-2 transition-all ${formData.user_type === 'merchant' ? 'bg-purple-600/20 border-purple-500 text-white' : 'bg-neutral-950/30 border-white/10 text-neutral-400 hover:bg-white/5'}`}
-                    onClick={() => setFormData({ ...formData, user_type: 'merchant' })}
+                    className={`cursor-pointer rounded-lg border p-4 flex flex-col items-center gap-2 transition-all ${registerForm.watch("user_type") === 'merchant' ? 'bg-purple-600/20 border-purple-500 text-white' : 'bg-neutral-950/30 border-white/10 text-neutral-400 hover:bg-white/5'}`}
+                    onClick={() => registerForm.setValue("user_type", "merchant")}
                   >
                     <span className="font-medium">Creator</span>
                   </div>
@@ -143,7 +195,7 @@ export default function RegisterPage() {
 
               <Button
                 type="submit"
-                className="w-full bg-purple-600 hover:bg-purple-700 text-white mt-6"
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white mt-6 cursor-pointer"
                 disabled={isLoading}
               >
                 {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
@@ -151,13 +203,13 @@ export default function RegisterPage() {
               </Button>
             </form>
           ) : (
-            <form onSubmit={handleVerify} className="space-y-4">
+            <form onSubmit={verifyForm.handleSubmit(onVerifySubmit)} className="space-y-4">
               <div className="space-y-2 flex flex-col items-center">
                 <FormLabel htmlFor="otp">Verification Code</FormLabel>
                 <InputOTP
                   maxLength={6}
-                  value={otp}
-                  onChange={(value) => setOtp(value)}
+                  value={verifyForm.watch("otp")}
+                  onChange={(value) => verifyForm.setValue("otp", value)}
                 >
                   <InputOTPGroup>
                     <InputOTPSlot index={0} className="bg-neutral-950/50 border-white/10 text-white" />
@@ -168,10 +220,13 @@ export default function RegisterPage() {
                     <InputOTPSlot index={5} className="bg-neutral-950/50 border-white/10 text-white" />
                   </InputOTPGroup>
                 </InputOTP>
+                {verifyForm.formState.errors.otp && (
+                  <p className="text-xs text-red-400">{verifyForm.formState.errors.otp.message}</p>
+                )}
               </div>
               <Button
                 type="submit"
-                className="w-full bg-purple-600 hover:bg-purple-700 text-white mt-6"
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white mt-6 cursor-pointer"
                 disabled={isLoading}
               >
                 {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
@@ -179,7 +234,7 @@ export default function RegisterPage() {
               </Button>
               <Button
                 variant="ghost"
-                className="w-full text-neutral-400 hover:text-white"
+                className="w-full text-neutral-400 hover:text-white cursor-pointer"
                 onClick={() => setStep('register')}
                 type="button"
               >
