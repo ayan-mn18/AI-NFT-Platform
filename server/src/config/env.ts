@@ -67,6 +67,12 @@ interface EnvConfig {
   databasePoolMax: number;
   databaseIdleTimeout: number;
 
+  // Chat System
+  geminiApiKey: string;
+  geminiModel: string;
+  defaultTokenLimit: number;
+  maxChatsPerUser: number;
+
   // Feature Flags
   enableEmailVerification: boolean;
   enableActivityLogging: boolean;
@@ -156,6 +162,12 @@ const config: EnvConfig = {
   databasePoolMin: getEnvNumber('DATABASE_POOL_MIN', 2),
   databasePoolMax: getEnvNumber('DATABASE_POOL_MAX', 10),
   databaseIdleTimeout: getEnvNumber('DATABASE_IDLE_TIMEOUT', 30000),
+
+  // Chat System
+  geminiApiKey: getEnv('GEMINI_API_KEY', ''),
+  geminiModel: getEnv('GEMINI_MODEL', 'gemini-pro'),
+  defaultTokenLimit: getEnvNumber('DEFAULT_TOKEN_LIMIT', 100000),
+  maxChatsPerUser: getEnvNumber('MAX_CHATS_PER_USER', 5),
 
   // Feature Flags
   enableEmailVerification: getEnvBoolean('ENABLE_EMAIL_VERIFICATION', true),

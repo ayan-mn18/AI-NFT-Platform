@@ -75,6 +75,97 @@ export interface ValidationError {
 }
 
 /**
+ * Chat System Interfaces
+ */
+
+/**
+ * Chat Model Interface
+ */
+export interface Chat {
+  chat_id: string; // UUID
+  user_id: string; // UUID, Foreign Key
+  title: string; // Chat title (auto-generated or custom)
+  is_active: boolean; // Soft delete flag
+  created_at: Date;
+  updated_at: Date;
+}
+
+/**
+ * Message Model Interface
+ */
+export interface Message {
+  message_id: string; // UUID
+  chat_id: string; // UUID, Foreign Key
+  role: 'user' | 'assistant' | 'system'; // Message sender role
+  content: string; // Message text content
+  metadata: Record<string, any>; // JSONB for future image attachments
+  tokens_consumed: number; // Tokens used for this message
+  created_at: Date;
+}
+
+/**
+ * User Usage Model Interface
+ */
+export interface UserUsage {
+  user_id: string; // UUID, Primary Key
+  total_tokens_used: number; // Total tokens consumed
+  token_limit: number; // User's token limit
+  last_reset_at: Date; // Last reset timestamp
+  created_at: Date;
+  updated_at: Date;
+}
+
+/**
+ * Chat API Request Types
+ */
+export interface CreateChatRequest {
+  title?: string; // Optional chat title
+}
+
+export interface SendMessageRequest {
+  message: string; // User message content (1-5000 chars)
+  attachments?: {
+    type: 'image'; // Future support
+    url: string; // S3 URL
+  }[];
+}
+
+/**
+ * Chat API Response Types
+ */
+export interface CreateChatResponse {
+  chat_id: string;
+  title: string;
+  created_at: Date;
+}
+
+export interface ChatListResponse {
+  chats: Chat[];
+  total: number;
+  active: number; // Count of active chats
+}
+
+export interface ChatHistoryResponse {
+  chat_id: string;
+  title: string;
+  messages: Message[];
+  total_messages: number;
+}
+
+/**
+ * Chat Error Codes
+ */
+export enum ChatErrorCode {
+  CHAT_NOT_FOUND = 'CHAT_NOT_FOUND',
+  MAX_CHATS_EXCEEDED = 'MAX_CHATS_EXCEEDED',
+  TOKEN_LIMIT_EXCEEDED = 'TOKEN_LIMIT_EXCEEDED',
+  INVALID_MESSAGE = 'INVALID_MESSAGE',
+  CHAT_INACTIVE = 'CHAT_INACTIVE',
+  UNAUTHORIZED_CHAT_ACCESS = 'UNAUTHORIZED_CHAT_ACCESS',
+  CHAT_DELETION_FAILED = 'CHAT_DELETION_FAILED',
+}
+
+/**
  * Pagination Options
  */
 export interface PaginationOptions {
