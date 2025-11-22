@@ -24,19 +24,25 @@ export function ChatArea({ messages, isStreaming, isThinking, onSendMessage }: C
   }, [messages, isStreaming, isThinking])
 
   return (
-    <div className="flex flex-col flex-1 h-full bg-neutral-950 relative">
+    <div className="flex flex-col flex-1 h-full bg-linear-to-b from-neutral-950 via-neutral-950 to-neutral-900 relative overflow-hidden">
+      {/* Animated gradient background */}
+      <div className="absolute inset-0 opacity-30">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl" />
+      </div>
+
       {/* Messages Area */}
-      <ScrollArea className="flex-1 p-4" ref={scrollRef}>
-        <div className="max-w-3xl mx-auto space-y-6 py-6 pb-32">
+      <ScrollArea className="flex-1 p-0 relative z-10" ref={scrollRef}>
+        <div className="max-w-3xl mx-auto w-full space-y-6 py-8 px-4 pb-32">
           {messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-[50vh] text-center space-y-4 opacity-50">
-              <div className="w-16 h-16 bg-neutral-900 rounded-2xl flex items-center justify-center border border-white/10">
-                <Sparkles className="w-8 h-8 text-purple-500" />
+            <div className="flex flex-col items-center justify-center h-[50vh] text-center space-y-6">
+              <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center backdrop-blur-sm border border-white/10">
+                <Sparkles className="w-8 h-8 text-white/80" />
               </div>
-              <div>
-                <h3 className="text-lg font-medium text-white">Start Creating</h3>
-                <p className="text-sm text-neutral-400 max-w-xs mx-auto mt-2">
-                  Describe the NFT you want to generate, and Aura will help you visualize it.
+              <div className="space-y-2">
+                <h3 className="text-xl font-medium text-white">Start Creating</h3>
+                <p className="text-sm text-neutral-400 max-w-xs mx-auto">
+                  Describe the NFT you want to generate, and Aura will help you bring it to life.
                 </p>
               </div>
             </div>
@@ -51,14 +57,14 @@ export function ChatArea({ messages, isStreaming, isThinking, onSendMessage }: C
               ))}
 
               {isThinking && (
-                <div className="flex items-center gap-3 p-4">
-                  <div className="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
-                    <Sparkles className="w-4 h-4 text-purple-500 animate-pulse" />
+                <div className="flex items-center gap-3 px-4 py-2">
+                  <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0 border border-purple-500/30">
+                    <Sparkles className="w-4 h-4 text-purple-400 animate-pulse" />
                   </div>
                   <div className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                    <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                    <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-bounce"></span>
+                    <span className="w-1.5 h-1.5 bg-neutral-500 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                    <span className="w-1.5 h-1.5 bg-neutral-500 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                    <span className="w-1.5 h-1.5 bg-neutral-500 rounded-full animate-bounce"></span>
                   </div>
                 </div>
               )}
@@ -69,9 +75,12 @@ export function ChatArea({ messages, isStreaming, isThinking, onSendMessage }: C
       </ScrollArea>
 
       {/* Input Area */}
-      <div className="absolute bottom-6 left-0 right-0 px-4">
-        <div className="max-w-3xl mx-auto">
+      <div className="absolute bottom-0 left-0 right-0 p-4 bg-linear-to-t from-neutral-950 via-neutral-950 to-transparent z-20">
+        <div className="max-w-3xl mx-auto w-full">
           <ChatInput onSend={onSendMessage} isLoading={isStreaming || isThinking} />
+          <p className="text-xs text-center text-neutral-500 mt-2">
+            AI can make mistakes. Please verify important information.
+          </p>
         </div>
       </div>
     </div>

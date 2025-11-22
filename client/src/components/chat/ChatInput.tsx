@@ -9,7 +9,7 @@ interface ChatInputProps {
   placeholder?: string
 }
 
-export function ChatInput({ onSend, isLoading, placeholder = "Describe the NFT you want to create..." }: ChatInputProps) {
+export function ChatInput({ onSend, isLoading, placeholder = "Message Aura..." }: ChatInputProps) {
   const [input, setInput] = useState("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -35,27 +35,27 @@ export function ChatInput({ onSend, isLoading, placeholder = "Describe the NFT y
   }, [input])
 
   return (
-    <div className="relative flex items-end gap-2 p-2 bg-neutral-900/80 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl shadow-black/50">
-      <div className="relative flex-1">
-        <Textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          className="min-h-11 max-h-[200px] w-full resize-none bg-transparent border-0 text-white placeholder:text-neutral-500 focus-visible:ring-0 px-4 py-3"
-          disabled={isLoading}
-        />
-      </div>
+    <div className="relative flex items-end gap-2 p-2 bg-neutral-800/50 rounded-3xl border border-white/5 focus-within:border-white/10 focus-within:bg-neutral-800 transition-all duration-200">
+      <Textarea
+        ref={textareaRef}
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder}
+        className="min-h-11 max-h-[200px] w-full resize-none bg-transparent border-0 text-white placeholder:text-neutral-400 focus-visible:ring-0 px-4 py-3 font-medium text-base"
+        disabled={isLoading}
+      />
+
       <Button
         onClick={handleSend}
         disabled={!input.trim() || isLoading}
-        className="h-11 w-11 shrink-0 bg-purple-600 hover:bg-purple-500 text-white rounded-full shadow-lg shadow-purple-500/20 transition-all hover:scale-105 active:scale-95 mb-0.5 mr-0.5"
+        className="h-10 w-10 shrink-0 rounded-full bg-white text-black hover:bg-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed mb-1 mr-1 transition-all duration-200"
+        size="icon"
       >
         {isLoading ? (
           <Loader2 className="w-5 h-5 animate-spin" />
         ) : (
-          <Send className="w-5 h-5 ml-0.5" />
+          <Send className="w-5 h-5" />
         )}
       </Button>
     </div>

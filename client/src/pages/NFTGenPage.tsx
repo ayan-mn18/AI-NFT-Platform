@@ -1,101 +1,180 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { ChatSidebar } from "@/components/chat/ChatSidebar"
 import { ChatArea } from "@/components/chat/ChatArea"
 import type { Message, ChatSession } from "@/types/chat"
 import { useAuth } from "@/context/AuthContext"
 import { Sparkles } from "lucide-react"
 import { useNavigate } from "react-router-dom"
+import { chatService } from "@/services/chat.service"
+import { toast } from "sonner"
 
 export default function NFTGenPage() {
   const navigate = useNavigate()
   const { logout, user } = useAuth()
   const [isStreaming, setIsStreaming] = useState(false)
   const [isThinking, setIsThinking] = useState(false)
-  const [currentSessionId, setCurrentSessionId] = useState<string>('1')
+  const [currentSessionId, setCurrentSessionId] = useState<string>('')
+  const [sessions, setSessions] = useState<ChatSession[]>([])
+  const [messages, setMessages] = useState<Message[]>([])
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
 
-  // Mock Data - To be replaced with API calls
-  const [sessions, setSessions] = useState<ChatSession[]>([
-    { id: '1', title: 'Cyberpunk Cityscape', updatedAt: new Date() },
-    { id: '2', title: 'Abstract Fluid Art', updatedAt: new Date(Date.now() - 86400000) },
-    { id: '3', title: 'Pixel Art Character', updatedAt: new Date(Date.now() - 172800000) },
-  ])
+  // Fetch chats on mount
+  useEffect(() => {
+    loadChats()
+  }, [])
 
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      role: 'assistant',
-      content: "Hello! I'm Aura, your AI NFT assistant. Describe the artwork you'd like to create today.",
-      timestamp: new Date()
+  // Fetch messages when session changes
+  useEffect(() => {
+    if (currentSessionId) {
+      loadChatHistory(currentSessionId)
+    } else {
+      setMessages([])
     }
-  ])
+  }, [currentSessionId])
 
-  const handleSendMessage = (content: string) => {
+  const loadChats = async () => {
+    try {
+      const fetchedSessions = await chatService.getChats()
+      setSessions(fetchedSessions)
+
+      // If we have sessions but no current session selected, select the most recent one
+      if (fetchedSessions.length > 0 && !currentSessionId) {
+        setCurrentSessionId(fetchedSessions[0].id)
+      }
+    } catch (error) {
+      toast.error("Failed to load chat history")
+    }
+  }
+
+  const loadChatHistory = async (chatId: string) => {
+    setIsLoadingHistory(true)
+    try {
+      const history = await chatService.getChatHistory(chatId)
+      setMessages(history)
+    } catch (error) {
+      toast.error("Failed to load messages")
+    } finally {
+      setIsLoadingHistory(false)
+    }
+  }
+
+  const handleSendMessage = async (content: string) => {
+    if (!currentSessionId) {
+      console.warn('No current session ID, cannot send message')
+      toast.error("Please select a chat or create a new one")
+      return
+    }
+
     // Optimistic update
+    const tempId = Date.now().toString()
     const newMessage: Message = {
-      id: Date.now().toString(),
+      id: tempId,
       role: 'user',
       content,
       timestamp: new Date()
     }
-    setMessages(prev => [...prev, newMessage])
+
+    // Create placeholder for AI response
+    const aiPlaceholderId = (Date.now() + 1).toString()
+    const aiPlaceholder: Message = {
+      id: aiPlaceholderId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date()
+    }
+
+    setMessages(prev => [...prev, newMessage, aiPlaceholder])
     setIsThinking(true)
 
-    // Simulate API delay and streaming
-    setTimeout(() => {
+    console.log('Sending message to chat:', currentSessionId)
+
+    try {
+      await chatService.sendMessageStream(
+        currentSessionId,
+        content,
+        (chunk) => {
+          console.log('Received chunk batch, length:', chunk.length)
+          setIsThinking(false)
+          setIsStreaming(false)
+          // Update only the last message (AI response placeholder)
+          setMessages(prev => {
+            const updated = [...prev]
+            const lastIndex = updated.length - 1
+            if (updated[lastIndex].id === aiPlaceholderId) {
+              updated[lastIndex] = {
+                ...updated[lastIndex],
+                content: updated[lastIndex].content + chunk
+              }
+            }
+            return updated
+          })
+        },
+        (metadata) => {
+          console.log('Stream completed, tokens used:', metadata.tokens_used)
+          setIsStreaming(false)
+          setIsThinking(false)
+          setMessages(prev => prev.map(msg =>
+            msg.id === aiPlaceholderId
+              ? { ...msg, id: metadata.message_id, tokensUsed: metadata.tokens_used }
+              : msg
+          ))
+          // Refresh chat list to update timestamps/previews if needed
+          loadChats()
+        },
+        (error) => {
+          console.error('Stream error:', error)
+          setIsThinking(false)
+          setIsStreaming(false)
+          const errorMessage = error instanceof Error ? error.message : (error?.message || "Failed to generate response")
+          toast.error(errorMessage)
+          // Remove the placeholder if it's empty or show error state
+          setMessages(prev => prev.filter(msg => msg.id !== aiPlaceholderId || msg.content.length > 0))
+        }
+      )
+    } catch (err) {
+      console.error('Unexpected error in handleSendMessage:', err)
       setIsThinking(false)
-      setIsStreaming(true)
-
-      const aiResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `I've analyzed your request for "${content}". Here is a concept that matches your vision:
-
-### **Neon Horizon: Cyberpunk Dreams**
-
-This artwork captures the essence of a futuristic metropolis at twilight.
-
-**Key Elements:**
-*   **Color Palette:** Deep indigos, electric pinks, and cyan highlights.
-*   **Composition:** Low-angle perspective looking up at towering skyscrapers.
-*   **Atmosphere:** Heavy rain reflecting neon signs on the wet pavement.
-
-**Suggested Style:**
-> "A high-fidelity digital painting with ray-traced reflections and volumetric fog."
-
-I'm now generating the high-resolution preview for you... 🎨`,
-        timestamp: new Date(),
-        tokensUsed: 150
-      }
-      setMessages(prev => [...prev, aiResponse])
-
-      // Stop streaming after a delay to simulate text generation
-      setTimeout(() => setIsStreaming(false), 2000)
-    }, 2000)
-  }
-
-  const handleNewChat = () => {
-    const newId = Date.now().toString()
-    const newSession: ChatSession = {
-      id: newId,
-      title: 'New Conversation',
-      updatedAt: new Date()
+      setIsStreaming(false)
+      toast.error("An unexpected error occurred")
+      setMessages(prev => prev.filter(msg => msg.id !== aiPlaceholderId))
     }
-    setSessions(prev => [newSession, ...prev])
-    setCurrentSessionId(newId)
-    setMessages([{
-      id: Date.now().toString(),
-      role: 'assistant',
-      content: "Hello! I'm Aura. Start a new creative journey by describing your idea.",
-      timestamp: new Date()
-    }])
   }
 
-  const handleDeleteChat = (id: string, e: React.MouseEvent) => {
+  const handleNewChat = async () => {
+    try {
+      const newSession = await chatService.createChat("New Conversation")
+      setSessions(prev => [newSession, ...prev])
+      setCurrentSessionId(newSession.id)
+      setMessages([]) // Start with empty messages or a welcome message
+      toast.success("New chat created")
+    } catch (error: any) {
+      if (error.response?.data?.code === 'MAX_CHATS_EXCEEDED') {
+        toast.error("Maximum chat limit reached. Please delete an old chat.")
+      } else {
+        toast.error("Failed to create new chat")
+      }
+    }
+  }
+
+  const handleDeleteChat = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    setSessions(prev => prev.filter(s => s.id !== id))
-    if (currentSessionId === id) {
-      setCurrentSessionId('')
-      setMessages([])
+    try {
+      await chatService.deleteChat(id)
+      setSessions(prev => prev.filter(s => s.id !== id))
+
+      if (currentSessionId === id) {
+        // If we deleted the current chat, switch to the next available one or clear
+        const remainingSessions = sessions.filter(s => s.id !== id)
+        if (remainingSessions.length > 0) {
+          setCurrentSessionId(remainingSessions[0].id)
+        } else {
+          setCurrentSessionId('')
+          setMessages([])
+        }
+      }
+      toast.success("Chat deleted")
+    } catch (error) {
+      toast.error("Failed to delete chat")
     }
   }
 
@@ -115,7 +194,6 @@ I'm now generating the high-resolution preview for you... 🎨`,
           navigate('/login')
         }}
       />
-
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
@@ -136,7 +214,7 @@ I'm now generating the high-resolution preview for you... 🎨`,
         <ChatArea
           messages={messages}
           isStreaming={isStreaming}
-          isThinking={isThinking}
+          isThinking={isThinking || isLoadingHistory}
           onSendMessage={handleSendMessage}
         />
       </div>

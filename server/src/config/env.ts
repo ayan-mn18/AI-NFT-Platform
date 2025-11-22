@@ -165,7 +165,7 @@ const config: EnvConfig = {
 
   // Chat System
   geminiApiKey: getEnv('GEMINI_API_KEY', ''),
-  geminiModel: getEnv('GEMINI_MODEL', 'gemini-pro'),
+  geminiModel: getEnv('GEMINI_MODEL_NAME', 'gemini-2.0-flash'),
   defaultTokenLimit: getEnvNumber('DEFAULT_TOKEN_LIMIT', 100000),
   maxChatsPerUser: getEnvNumber('MAX_CHATS_PER_USER', 5),
 

@@ -671,35 +671,54 @@ export const streamChatResponse = async function* (
       parts: [{ text: userMessage }],
     });
 
+    logger.debug('Conversation history built', {
+      chatId,
+      messageCount: conversationHistory.length,
+    });
+
     // 7. Stream response from Gemini
     let fullResponse = '';
     let chunkCount = 0;
 
     try {
       const result = await model.generateContentStream({
-        contents: conversationHistory,
+        contents: conversationHistory as any,
+        generationConfig: {
+          maxOutputTokens: 2048,
+          temperature: 0.7,
+        },
       });
 
+      // Iterate through the response stream
       for await (const chunk of result.stream) {
-        const chunkText =
-          chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        try {
+          const chunkText =
+            chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-        if (chunkText) {
-          fullResponse += chunkText;
-          chunkCount++;
+          if (chunkText) {
+            fullResponse += chunkText;
+            chunkCount++;
 
-          logger.debug('Streaming chunk received', {
+            logger.debug('Streaming chunk received', {
+              chatId,
+              chunkNumber: chunkCount,
+              chunkLength: chunkText.length,
+              totalLength: fullResponse.length,
+            });
+
+            // Yield chunk to client
+            yield {
+              chunk: chunkText,
+              done: false,
+            };
+          }
+        } catch (chunkError) {
+          logger.warn('Error processing individual chunk', {
+            error: chunkError,
             chatId,
-            chunkNumber: chunkCount,
-            chunkLength: chunkText.length,
-            totalLength: fullResponse.length,
           });
-
-          // Yield chunk to client
-          yield {
-            chunk: chunkText,
-            done: false,
-          };
+          // Continue to next chunk on individual errors
+          continue;
         }
       }
 
@@ -708,8 +727,24 @@ export const streamChatResponse = async function* (
         totalChunks: chunkCount,
         totalResponseLength: fullResponse.length,
       });
-    } catch (streamError) {
-      logger.error('Error during streaming', { error: streamError, chatId });
+    } catch (streamError: any) {
+      logger.error('Error during streaming', { 
+        error: streamError,
+        status: streamError?.status,
+        statusText: streamError?.statusText,
+        message: streamError?.message,
+        chatId 
+      });
+      
+      // Provide more specific error based on status
+      if (streamError?.status === 400) {
+        throw new AppError(
+          'Invalid request format. Please try again with a shorter message.',
+          400,
+          'BAD_REQUEST'
+        );
+      }
+      
       throw new AppError(
         'Failed to generate response. Please try again.',
         500,
