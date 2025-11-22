@@ -581,6 +581,209 @@ export const updateChatTitle = async (
   }
 };
 
+/**
+ * Stream chat response from Gemini API
+ * Generates response chunks using server-sent events
+ *
+ * This function:
+ * 1. Validates user permissions
+ * 2. Loads chat history for context
+ * 3. Calls Gemini with streaming enabled
+ * 4. Yields response chunks as they arrive
+ * 5. Accumulates full response for token counting and persistence
+ *
+ * @param chatId - Chat identifier
+ * @param userId - User identifier for authorization
+ * @param userMessage - User's message content
+ * @returns AsyncGenerator yielding response chunks and metadata
+ *
+ * @throws AppError if chat not found, unauthorized, or token limit exceeded
+ */
+export const streamChatResponse = async function* (
+  chatId: string,
+  userId: string,
+  userMessage: string
+): AsyncGenerator<
+  {
+    chunk: string;
+    done: boolean;
+    tokens_used?: number;
+    message_id?: string;
+  },
+  void,
+  unknown
+> {
+  const supabase = getSupabaseClient();
+
+  try {
+    logger.info('streamChatResponse initiated', {
+      chatId,
+      userId,
+      messageLength: userMessage.length,
+    });
+
+    // 1. Verify chat ownership and active status
+    await getChat(chatId, userId);
+
+    // 2. Check token limit before processing
+    const hasTokenBudget = await checkTokenLimit(userId);
+    if (!hasTokenBudget) {
+      logger.warn('Token limit exceeded', { userId, chatId });
+      throw new AppError(
+        'You have exceeded your token limit. Please wait for your limit to reset.',
+        403,
+        ChatErrorCode.TOKEN_LIMIT_EXCEEDED
+      );
+    }
+
+    // 3. Load chat history for context (last 10 messages for context window)
+    const { messages: chatHistory } = await getChatMessages(
+      chatId,
+      userId,
+      10,
+      0
+    );
+
+    logger.debug('Chat history loaded', {
+      chatId,
+      messageCount: chatHistory.length,
+    });
+
+    // 4. Save user message to database
+    await saveMessage(chatId, 'user', userMessage, 0, {
+      source: 'user_input',
+      timestamp: new Date().toISOString(),
+    });
+
+    // 5. Get Gemini client and initialize streaming
+    const { getGenerativeModel } = await import('../config/gemini');
+    const model = getGenerativeModel(config.geminiModel);
+
+    // 6. Build conversation history for model context
+    const conversationHistory = chatHistory.map(msg => ({
+      role: msg.role === 'assistant' ? 'model' : msg.role,
+      parts: [{ text: msg.content }],
+    }));
+
+    // Add current user message
+    conversationHistory.push({
+      role: 'user',
+      parts: [{ text: userMessage }],
+    });
+
+    // 7. Stream response from Gemini
+    let fullResponse = '';
+    let chunkCount = 0;
+
+    try {
+      const result = await model.generateContentStream({
+        contents: conversationHistory,
+      });
+
+      for await (const chunk of result.stream) {
+        const chunkText =
+          chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+        if (chunkText) {
+          fullResponse += chunkText;
+          chunkCount++;
+
+          logger.debug('Streaming chunk received', {
+            chatId,
+            chunkNumber: chunkCount,
+            chunkLength: chunkText.length,
+            totalLength: fullResponse.length,
+          });
+
+          // Yield chunk to client
+          yield {
+            chunk: chunkText,
+            done: false,
+          };
+        }
+      }
+
+      logger.info('Streaming completed', {
+        chatId,
+        totalChunks: chunkCount,
+        totalResponseLength: fullResponse.length,
+      });
+    } catch (streamError) {
+      logger.error('Error during streaming', { error: streamError, chatId });
+      throw new AppError(
+        'Failed to generate response. Please try again.',
+        500,
+        'STREAM_ERROR'
+      );
+    }
+
+    // 8. Save assistant response to database
+    const responseMessage = await saveMessage(
+      chatId,
+      'assistant',
+      fullResponse,
+      0,
+      {
+        source: 'gemini_stream',
+        model: config.geminiModel,
+        chunks: chunkCount,
+        timestamp: new Date().toISOString(),
+      }
+    );
+
+    // 9. Calculate tokens consumed for this exchange
+    const { countTextTokens, calculateMessageTokens } = await import(
+      '../utils/tokenService'
+    );
+
+    const tokenStats = await calculateMessageTokens(
+      userMessage,
+      fullResponse,
+      config.geminiModel
+    );
+
+    logger.info('Token calculation completed', {
+      chatId,
+      userId,
+      ...tokenStats,
+    });
+
+    // 10. Update user token usage
+    await updateUserUsage(userId, tokenStats.total_tokens);
+
+    // 11. Update message tokens
+    await (supabase.from('messages') as any)
+      .update({
+        tokens_consumed: tokenStats.total_tokens,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('message_id', responseMessage.message_id);
+
+    logger.info('streamChatResponse completed successfully', {
+      chatId,
+      userId,
+      tokens_used: tokenStats.total_tokens,
+      message_id: responseMessage.message_id,
+    });
+
+    // 12. Yield final completion signal with metadata
+    yield {
+      chunk: '',
+      done: true,
+      tokens_used: tokenStats.total_tokens,
+      message_id: responseMessage.message_id,
+    };
+  } catch (error) {
+    logger.error('streamChatResponse error', { error, chatId, userId });
+    if (error instanceof AppError) throw error;
+    throw new AppError(
+      'Failed to process message stream',
+      500,
+      'INTERNAL_SERVER_ERROR'
+    );
+  }
+};
+
 export default {
   getUserChatCount,
   createChat,
@@ -594,4 +797,5 @@ export default {
   deleteChat,
   estimateTokens,
   updateChatTitle,
+  streamChatResponse,
 };

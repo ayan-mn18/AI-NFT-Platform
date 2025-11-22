@@ -8,6 +8,7 @@ import multer from 'multer';
 import config from './config/env';
 import logger from './config/logger';
 import { initializeSupabase, testSupabaseConnection } from './config/supabase';
+import { initializeGemini } from './config/gemini';
 
 // Middleware imports
 import {
@@ -162,6 +163,19 @@ const startServer = async () => {
       logger.warn(
         '⚠️  Supabase connection test failed. This may be expected if credentials are not yet configured.'
       );
+    }
+
+    // Initialize Google Generative AI (Gemini)
+    logger.info('Initializing Google Generative AI (Gemini)...');
+    try {
+      initializeGemini();
+      logger.info('✅ Google Generative AI initialized successfully');
+    } catch (geminiError) {
+      logger.error(
+        '❌ Failed to initialize Gemini. Chat streaming will not be available.',
+        { error: geminiError }
+      );
+      // Continue server startup even if Gemini fails
     }
 
     // Start Express server

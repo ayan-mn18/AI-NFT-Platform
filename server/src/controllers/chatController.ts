@@ -6,6 +6,8 @@
  * - GET /api/chat - List user's chats
  * - POST /api/chat - Create new chat
  * - GET /api/chat/:chatId - Get chat history
+ * - POST /api/chat/:chatId/message - Send message with SSE streaming
+ * - DELETE /api/chat/:chatId - Delete chat
  */
 
 import { Response } from 'express';
@@ -23,6 +25,8 @@ import {
   getUserChats,
   getChatMessages,
   getChat,
+  streamChatResponse,
+  deleteChat,
 } from '../services/chatService';
 
 /**
@@ -327,8 +331,288 @@ function isValidUUID(uuid: string): boolean {
   return uuidRegex.test(uuid);
 }
 
+/**
+ * POST /api/chat/:chatId/message
+ * Send a message to a chat with SSE streaming response
+ *
+ * Streaming Response Format:
+ * Server-Sent Events (text/event-stream)
+ * - Each chunk: data: <chunk text>\n\n
+ * - Final event: data: {"done": true, "tokens_used": 123, "message_id": "uuid"}\n\n
+ *
+ * Request body:
+ * {
+ *   message: string (required, 1-5000 characters)
+ * }
+ *
+ * Response (200 OK - with streaming):
+ * Server sends chunks as they arrive from Gemini API
+ * Final chunk contains metadata about tokens used and message ID
+ *
+ * Errors:
+ * - 401: Unauthorized
+ * - 403: Chat access denied or token limit exceeded
+ * - 404: Chat not found
+ * - 400: Invalid message or request body
+ * - 500: Internal server error
+ *
+ * Example Usage (Client-side):
+ * ```typescript
+ * const eventSource = new EventSource(`/api/chat/${chatId}/message?msg=Hello`);
+ * eventSource.onmessage = (event) => {
+ *   const chunk = event.data;
+ *   if (chunk.startsWith('{')) {
+ *     const meta = JSON.parse(chunk);
+ *     console.log(`Used ${meta.tokens_used} tokens`);
+ *     eventSource.close();
+ *   } else {
+ *     console.log(chunk);
+ *   }
+ * };
+ * ```
+ */
+export const sendMessage = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    if (!req.user) {
+      logger.warn('sendMessage: No user in request');
+      return res.status(401).json({
+        status: 'error',
+        message: 'Unauthorized. Please sign in.',
+        code: 'UNAUTHORIZED',
+      });
+    }
+
+    const userId = req.user.user_id;
+    const { chatId } = req.params;
+    const { message } = req.body;
+
+    logger.info('sendMessage endpoint called', {
+      user_id: userId,
+      chat_id: chatId,
+      message_length: message?.length,
+    });
+
+    // Validate chatId format
+    if (!isValidUUID(chatId)) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Invalid chat ID format',
+        code: ChatErrorCode.CHAT_NOT_FOUND,
+      });
+    }
+
+    // Validate message
+    if (!message || typeof message !== 'string') {
+      logger.warn('sendMessage: Invalid message body', { userId, chatId });
+      return res.status(400).json({
+        status: 'error',
+        message: 'Message is required and must be a string',
+        code: ChatErrorCode.INVALID_MESSAGE,
+      });
+    }
+
+    const trimmedMessage = message.trim();
+    if (trimmedMessage.length === 0 || trimmedMessage.length > 5000) {
+      logger.warn('sendMessage: Message length out of bounds', {
+        userId,
+        chatId,
+        length: trimmedMessage.length,
+      });
+      return res.status(400).json({
+        status: 'error',
+        message: 'Message must be between 1 and 5000 characters',
+        code: ChatErrorCode.INVALID_MESSAGE,
+      });
+    }
+
+    // Set SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable proxy buffering
+
+    logger.debug('SSE headers set', { chatId });
+
+    // Stream response chunks
+    try {
+      const streamGenerator = streamChatResponse(chatId, userId, trimmedMessage);
+
+      for await (const streamChunk of streamGenerator) {
+        if (streamChunk.done) {
+          // Send final metadata
+          const metadata = {
+            done: true,
+            tokens_used: streamChunk.tokens_used,
+            message_id: streamChunk.message_id,
+          };
+          res.write(`data: ${JSON.stringify(metadata)}\n\n`);
+          logger.debug('Final metadata sent', { chatId, ...metadata });
+        } else if (streamChunk.chunk) {
+          // Send chunk data
+          res.write(`data: ${streamChunk.chunk}\n\n`);
+          logger.debug('Chunk sent', {
+            chatId,
+            chunkLength: streamChunk.chunk.length,
+          });
+        }
+      }
+
+      res.end();
+      logger.info('sendMessage: SSE stream completed', {
+        user_id: userId,
+        chat_id: chatId,
+      });
+    } catch (streamError) {
+      logger.error('sendMessage: Stream error', { error: streamError, chatId });
+
+      // Send error event if stream hasn't ended
+      if (!res.headersSent) {
+        res.status(500);
+      }
+
+      if (!res.writableEnded) {
+        const errorEvent = {
+          error: true,
+          message:
+            streamError instanceof AppError
+              ? streamError.message
+              : 'An error occurred while generating response',
+          code:
+            streamError instanceof AppError
+              ? streamError.code
+              : 'STREAM_ERROR',
+        };
+        res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
+        res.end();
+      }
+    }
+  } catch (error) {
+    logger.error('sendMessage endpoint error', { error });
+
+    if (!res.headersSent) {
+      if (error instanceof AppError) {
+        return res.status(error.statusCode).json({
+          status: 'error',
+          message: error.message,
+          code: error.code,
+        });
+      }
+
+      res.status(500).json({
+        status: 'error',
+        message: 'An unexpected error occurred',
+        code: 'INTERNAL_SERVER_ERROR',
+      });
+    } else if (!res.writableEnded) {
+      // If headers were already sent, write error to stream
+      const errorEvent = {
+        error: true,
+        message:
+          error instanceof AppError
+            ? error.message
+            : 'An unexpected error occurred',
+        code: error instanceof AppError ? error.code : 'INTERNAL_SERVER_ERROR',
+      };
+      res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
+      res.end();
+    }
+  }
+};
+
+/**
+ * DELETE /api/chat/:chatId
+ * Delete (soft delete) a chat session
+ *
+ * URL Parameters:
+ * - chatId: UUID (required)
+ *
+ * Response (200 OK):
+ * {
+ *   status: 'success'
+ *   message: 'Chat deleted successfully'
+ *   data: {
+ *     chat_id: UUID
+ *     deleted_at: ISO timestamp
+ *   }
+ * }
+ *
+ * Errors:
+ * - 401: Unauthorized
+ * - 403: Forbidden (not chat owner)
+ * - 404: Chat not found
+ * - 400: Invalid chat ID format
+ * - 500: Internal server error
+ */
+export const deleteChatHandler = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    if (!req.user) {
+      logger.warn('deleteChat: No user in request');
+      throw new AppError(
+        'Unauthorized. Please sign in.',
+        401,
+        'UNAUTHORIZED'
+      );
+    }
+
+    const userId = req.user.user_id;
+    const { chatId } = req.params;
+
+    logger.info('deleteChat endpoint called', {
+      user_id: userId,
+      chat_id: chatId,
+    });
+
+    // Validate chatId format
+    if (!isValidUUID(chatId)) {
+      throw new AppError(
+        'Invalid chat ID format',
+        400,
+        ChatErrorCode.CHAT_NOT_FOUND
+      );
+    }
+
+    // Delete chat (soft delete - sets is_active to false)
+    await deleteChat(chatId, userId);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Chat deleted successfully',
+      data: {
+        chat_id: chatId,
+        deleted_at: new Date().toISOString(),
+      },
+    });
+
+    logger.info('deleteChat: Success', { user_id: userId, chat_id: chatId });
+  } catch (error) {
+    logger.error('deleteChat endpoint error', { error });
+
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: 'error',
+        message: error.message,
+        code: error.code,
+      });
+    }
+
+    res.status(500).json({
+      status: 'error',
+      message: 'An unexpected error occurred while deleting chat',
+      code: 'INTERNAL_SERVER_ERROR',
+    });
+  }
+};
+
 export default {
   listChats,
   createNewChat,
   getChatHistory,
+  sendMessage,
+  deleteChatHandler,
 };
