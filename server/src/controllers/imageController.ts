@@ -10,12 +10,17 @@ import { AppError, AuthenticatedRequest } from '../types';
 
 /**
  * POST /api/gen-image
- * Generate an AI image from a text prompt
+ * Generate an AI image from a text prompt with optional reference image
  * 
  * Request body:
  * {
  *   chatId: string;
  *   prompt: string;
+ *   referenceImage?: {
+ *     type: 'base64' | 'url';
+ *     data: string; // base64 data or URL (S3 or external)
+ *     mimeType?: string; // optional, defaults to 'image/png'
+ *   }
  * }
  * 
  * Response:
@@ -26,6 +31,7 @@ import { AppError, AuthenticatedRequest } from '../types';
  *     imageUrl: string;
  *     s3Key: string;
  *     prompt: string;
+ *     referenceImageId?: string; // if reference image was used
  *     timestamp: Date;
  *   }
  * }
@@ -37,7 +43,7 @@ export const generateImage = async (req: AuthenticatedRequest, res: Response): P
       throw new AppError('Unauthorized', 401, 'UNAUTHORIZED');
     }
 
-    const { chatId, prompt } = req.body;
+    const { chatId, prompt, referenceImage } = req.body;
 
     // Validation
     if (!chatId || typeof chatId !== 'string') {
@@ -56,14 +62,30 @@ export const generateImage = async (req: AuthenticatedRequest, res: Response): P
       throw new AppError('Prompt must be less than 2000 characters', 400, 'VALIDATION_ERROR');
     }
 
+    // Validate reference image if provided
+    if (referenceImage) {
+      if (!referenceImage.type || !['base64', 'url'].includes(referenceImage.type)) {
+        throw new AppError('referenceImage.type must be "base64" or "url"', 400, 'VALIDATION_ERROR');
+      }
+
+      if (!referenceImage.data || typeof referenceImage.data !== 'string') {
+        throw new AppError('referenceImage.data is required and must be a string', 400, 'VALIDATION_ERROR');
+      }
+
+      if (referenceImage.type === 'base64' && referenceImage.data.length > 5000000) {
+        throw new AppError('Base64 image data is too large (max 5MB)', 400, 'VALIDATION_ERROR');
+      }
+    }
+
     logger.info('Image generation request received', {
       userId,
       chatId,
       promptLength: prompt.length,
+      hasReference: !!referenceImage,
     });
 
     // Generate and store image
-    const result = await generateAndStoreImage(userId, chatId, prompt);
+    const result = await generateAndStoreImage(userId, chatId, prompt, referenceImage);
 
     if (!result.success || !result.image) {
       throw new AppError(

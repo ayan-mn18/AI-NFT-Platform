@@ -1,22 +1,25 @@
 /**
  * Image Generation Service
  * Handles AI image generation using Gemini API and S3 storage
+ * Supports both text-to-image and image-to-image generation with reference images
  */
 
 import { getGeminiClient } from '../config/gemini';
 import { getS3Client } from '../config/aws';
 import { getSupabaseClient } from '../config/supabase';
-import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import config from '../config/env';
 import logger from '../config/logger';
 import { v4 as uuidv4 } from 'uuid';
 import { AppError } from '../types';
+import https from 'https';
 
 interface GeneratedImage {
   imageId: string;
   imageUrl: string;
   s3Key: string;
   prompt: string;
+  referenceImageId?: string;
   timestamp: Date;
 }
 
@@ -26,33 +29,158 @@ interface ImageGenerationResult {
   error?: string;
 }
 
+interface ReferenceImage {
+  type: 'base64' | 'url';
+  data: string; // base64 data or URL
+  mimeType?: string;
+}
+
 /**
- * Generate image using Gemini API and store in S3
+ * Fetch image from URL and convert to base64
+ */
+const fetchImageAsBase64 = async (imageUrl: string): Promise<{ data: string; mimeType: string }> => {
+  return new Promise((resolve, reject) => {
+    try {
+      logger.info('Fetching image from URL', { imageUrl });
+
+      const timeoutId = setTimeout(() => {
+        reject(new AppError('Image fetch timeout', 400, 'IMAGE_FETCH_TIMEOUT'));
+      }, 10000);
+
+      https.get(imageUrl, (response) => {
+        clearTimeout(timeoutId);
+        const chunks: any[] = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', () => {
+          const buffer = Buffer.concat(chunks);
+          const base64Data = buffer.toString('base64');
+          const mimeType = response.headers['content-type'] || 'image/png';
+          resolve({ data: base64Data, mimeType });
+        });
+      }).on('error', (error) => {
+        clearTimeout(timeoutId);
+        logger.error('Failed to fetch image from URL', { error, imageUrl });
+        reject(new AppError('Failed to fetch reference image from URL', 400, 'INVALID_IMAGE_URL'));
+      });
+    } catch (error) {
+      logger.error('Failed to fetch image from URL', { error, imageUrl });
+      reject(new AppError('Failed to fetch reference image from URL', 400, 'INVALID_IMAGE_URL'));
+    }
+  });
+};
+
+/**
+ * Download image from S3 and convert to base64
+ */
+const downloadS3ImageAsBase64 = async (
+  s3Key: string
+): Promise<{ data: string; mimeType: string }> => {
+  try {
+    logger.info('Downloading image from S3', { s3Key });
+    
+    const s3Client = getS3Client();
+    const command = new GetObjectCommand({
+      Bucket: config.awsS3Bucket,
+      Key: s3Key,
+    });
+
+    const response = await s3Client.send(command);
+    const buffer = await response.Body?.transformToByteArray();
+    
+    if (!buffer) {
+      throw new Error('No image data received from S3');
+    }
+
+    const base64Data = Buffer.from(buffer).toString('base64');
+    const mimeType = response.ContentType || 'image/png';
+
+    return { data: base64Data, mimeType };
+  } catch (error) {
+    logger.error('Failed to download image from S3', { error, s3Key });
+    throw new AppError('Failed to fetch reference image from S3', 400, 'INVALID_S3_KEY');
+  }
+};
+
+/**
+ * Process reference image - handles both base64 and URL/S3 formats
+ */
+const processReferenceImage = async (referenceImage: ReferenceImage): Promise<{ data: string; mimeType: string }> => {
+  if (referenceImage.type === 'base64') {
+    return {
+      data: referenceImage.data,
+      mimeType: referenceImage.mimeType || 'image/png',
+    };
+  }
+
+  if (referenceImage.type === 'url') {
+    // Check if it's an S3 URL (our generated image)
+    if (referenceImage.data.includes('.s3.') || referenceImage.data.includes('s3.amazonaws.com')) {
+      // Extract S3 key from URL
+      const urlParts = referenceImage.data.split('.com/');
+      const s3Key = urlParts[1];
+      if (!s3Key) {
+        throw new AppError('Invalid S3 URL format', 400, 'INVALID_S3_URL');
+      }
+      return await downloadS3ImageAsBase64(s3Key);
+    }
+
+    // Fetch from external URL
+    return await fetchImageAsBase64(referenceImage.data);
+  }
+
+  throw new AppError('Invalid reference image type', 400, 'INVALID_REFERENCE_IMAGE');
+};
+
+/**
+ * Generate image using Gemini API with optional reference image
  * @param userId - User ID for tracking and storage
  * @param chatId - Chat ID to associate the image with
  * @param prompt - Text prompt for image generation
+ * @param referenceImage - Optional reference image for image-to-image generation
  * @returns Image generation result with S3 URL
  */
 export const generateAndStoreImage = async (
   userId: string,
   chatId: string,
-  prompt: string
+  prompt: string,
+  referenceImage?: ReferenceImage
 ): Promise<ImageGenerationResult> => {
   try {
-    logger.info('Starting image generation', { userId, chatId, promptLength: prompt.length });
+    logger.info('Starting image generation', {
+      userId,
+      chatId,
+      promptLength: prompt.length,
+      hasReference: !!referenceImage,
+    });
 
     // Step 1: Generate image using Gemini API
     const geminiClient = getGeminiClient();
-    const model = geminiClient.getGenerativeModel({ 
-      model: 'gemini-2.5-flash-image' 
+    const model = geminiClient.getGenerativeModel({
+      model: 'gemini-2.5-flash-image',
     });
 
-    const result = await model.generateContent(prompt);
+    // Prepare content parts
+    const parts: any[] = [{ text: prompt }];
+
+    let referenceImageId: string | undefined;
+    if (referenceImage) {
+      logger.info('Processing reference image', { type: referenceImage.type });
+      
+      const processedImage = await processReferenceImage(referenceImage);
+      parts.push({
+        inline_data: {
+          mime_type: processedImage.mimeType,
+          data: processedImage.data,
+        },
+      });
+      referenceImageId = uuidv4();
+    }
+
+    const result = await model.generateContent(parts as any);
 
     const response = await result.response;
-    
+
     // Extract image data from response
-    // Gemini returns images as base64 encoded data
     if (!response.candidates || response.candidates.length === 0) {
       logger.error('No image candidates in response', { response: JSON.stringify(response) });
       throw new AppError('No image generated from API', 500, 'IMAGE_GENERATION_FAILED');
@@ -65,7 +193,7 @@ export const generateAndStoreImage = async (
     }
 
     // Find the inline data part (image)
-    const imagePart = candidate.content.parts.find(part => part.inlineData);
+    const imagePart = candidate.content.parts.find((part: any) => part.inlineData);
     if (!imagePart || !imagePart.inlineData) {
       logger.error('No image data in response', { parts: JSON.stringify(candidate.content.parts) });
       throw new AppError('No image data in API response', 500, 'IMAGE_GENERATION_FAILED');
@@ -73,11 +201,6 @@ export const generateAndStoreImage = async (
 
     const imageData = imagePart.inlineData.data;
     const mimeType = imagePart.inlineData.mimeType || 'image/png';
-
-    logger.info('Image data extracted successfully', { 
-      mimeType, 
-      dataLength: imageData.length 
-    });
 
     // Step 2: Upload to S3
     const imageId = uuidv4();
