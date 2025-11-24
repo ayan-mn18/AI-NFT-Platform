@@ -20,7 +20,7 @@ import {
 } from './middleware';
 
 // Route imports
-import { authRoutes, userRoutes, fileRoutes, chatRoutes } from './routes';
+import { authRoutes, userRoutes, fileRoutes, chatRoutes, imageRoutes } from './routes';
 import { initializeEmailService, sendOtpEmail } from './utils';
 import { uploadFileToS3 } from './services/fileUploadService';
 
@@ -115,6 +115,9 @@ app.use('/api/file', fileRoutes);
 
 // Chat routes - Protected routes (requires authentication)
 app.use('/api/chat', verifyAuth, chatRoutes);
+
+// Image generation routes - Protected routes (requires authentication)
+app.use('/api/gen-image', verifyAuth, imageRoutes);
 
 // NFT routes will be mounted here
 // app.use('/api/nft', verifyAuth, nftRoutes);

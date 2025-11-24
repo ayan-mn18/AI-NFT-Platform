@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { useState } from "react"
 import { toast } from "sonner"
+import { ImageMessage } from "./ImageMessage"
 
 interface MessageBubbleProps {
   message: Message
@@ -14,6 +15,7 @@ interface MessageBubbleProps {
 export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const [isCopied, setIsCopied] = useState(false)
+  const isImageMessage = message.metadata?.type === 'image'
 
   const handleCopy = async () => {
     try {
@@ -30,6 +32,49 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
     toast.success("Response reported")
   }
 
+  // Handle image message rendering
+  if (isImageMessage && message.metadata?.imageUrl) {
+    return (
+      <div className={cn(
+        "group flex w-full gap-4 py-2 relative",
+        isUser ? "justify-end" : "justify-start"
+      )}>
+        {!isUser && (
+          <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0 mt-1 border border-white/10">
+            <Sparkles className="w-4 h-4 text-white/80" />
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <ImageMessage
+            imageUrl={message.metadata.imageUrl}
+            prompt={message.metadata.prompt || message.content}
+            timestamp={message.timestamp}
+          />
+          {!isUser && !isStreaming && (
+            <div className="flex items-center gap-1 pl-0">
+              <button
+                onClick={handleCopy}
+                className="p-1.5 text-neutral-400 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                title="Copy response"
+              >
+                {isCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              </button>
+              <button
+                onClick={handleReport}
+                className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-colors"
+                title="Report response"
+              >
+                <Flag className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Regular text message rendering
   return (
     <div className={cn(
       "group flex w-full gap-4 py-2 relative",

@@ -4,6 +4,13 @@ export interface Message {
   content: string
   timestamp: Date
   tokensUsed?: number
+  metadata?: {
+    type?: 'image' | 'text'
+    imageUrl?: string
+    imageId?: string
+    prompt?: string
+    [key: string]: any
+  }
 }
 
 export interface ChatSession {
