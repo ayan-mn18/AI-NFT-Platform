@@ -104,7 +104,8 @@ export const generateAndStoreImage = async (
 
     await s3Client.send(uploadCommand);
 
-    const imageUrl = `${config.awsS3Url}/${s3Key}`;
+    // Construct proper S3 URL with bucket domain
+    const imageUrl = `https://${config.awsS3Bucket}.s3.${config.awsRegion}.amazonaws.com/${s3Key}`;
 
     logger.info('Image generated and uploaded successfully', {
       imageId,
