@@ -6,6 +6,7 @@
  * - POST /gen-image - Generate image from prompt
  * - GET /gen-image/chat/:chatId - Get images from specific chat
  * - GET /gen-image/user - Get all user's generated images
+ * - GET /gen-image/user/history - Get all user's images grouped by date
  */
 
 import { Router } from 'express';
@@ -13,6 +14,7 @@ import {
   generateImage,
   getImagesFromChat,
   getUserGeneratedImages,
+  getUserImageHistory,
 } from '../controllers/imageController';
 
 const router = Router();
@@ -46,6 +48,28 @@ router.post('/', generateImage);
  * Example: GET /api/gen-image/chat/550e8400-e29b-41d4-a716-446655440000?limit=20
  */
 router.get('/chat/:chatId', getImagesFromChat);
+
+/**
+ * GET /api/gen-image/user/history
+ * Get all generated images for the authenticated user grouped by date
+ * 
+ * Query Parameters:
+ * - limit?: number (default: 500, max: 1000)
+ * 
+ * Example: GET /api/gen-image/user/history?limit=500
+ * 
+ * Response:
+ * {
+ *   success: true,
+ *   data: [
+ *     { date: "25/11/2025", images: ["https://...", "https://..."] },
+ *     { date: "22/11/2025", images: ["https://...", "https://..."] }
+ *   ],
+ *   totalDates: 2,
+ *   totalImages: 10
+ * }
+ */
+router.get('/user/history', getUserImageHistory);
 
 /**
  * GET /api/gen-image/user

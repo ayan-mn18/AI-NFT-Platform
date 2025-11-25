@@ -4,7 +4,7 @@
  */
 
 import { Response } from 'express';
-import { generateAndStoreImage, getChatImages, getUserImages } from '../services/imageGenerationService';
+import { generateAndStoreImage, getChatImages, getUserImages, getUserImagesGroupedByDate, ImagesByDate, ImageWithMetadata } from '../services/imageGenerationService';
 import logger from '../config/logger';
 import { AppError, AuthenticatedRequest } from '../types';
 
@@ -175,15 +175,22 @@ export const getImagesFromChat = async (req: AuthenticatedRequest, res: Response
 
 /**
  * GET /api/gen-image/user
- * Get all generated images for the authenticated user
+ * Get all generated images for the authenticated user grouped by date
  * 
  * Query parameters:
- * - limit?: number (default: 100, max: 200)
+ * - limit?: number (default: 500, max: 1000)
  * 
  * Response:
  * {
  *   success: true,
- *   data: GeneratedImage[]
+ *   data: {
+ *     "25/11/2025": [
+ *       { imageId, imageUrl, s3Key, prompt, timestamp },
+ *       ...
+ *     ],
+ *     "22/11/2025": [...]
+ *   },
+ *   totalImages: 10
  * }
  */
 export const getUserGeneratedImages = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
@@ -193,17 +200,85 @@ export const getUserGeneratedImages = async (req: AuthenticatedRequest, res: Res
       throw new AppError('Unauthorized', 401, 'UNAUTHORIZED');
     }
 
-    const limit = Math.min(parseInt(req.query.limit as string) || 100, 200);
+    const limit = Math.min(parseInt(req.query.limit as string) || 500, 1000);
 
-    const images = await getUserImages(userId, limit);
+    const imagesByDate = await getUserImagesGroupedByDate(userId, limit);
+
+    // Convert array to object format: { "25/11/2025": [...], "22/11/2025": [...] }
+    const groupedData: Record<string, ImageWithMetadata[]> = {};
+    let totalImages = 0;
+
+    imagesByDate.forEach((group: ImagesByDate) => {
+      groupedData[group.date] = group.images;
+      totalImages += group.images.length;
+    });
 
     res.status(200).json({
       success: true,
-      data: images,
-      count: images.length,
+      data: groupedData,
+      totalImages,
     });
   } catch (error) {
     logger.error('Error in getUserGeneratedImages controller', { error });
+    
+    if (error instanceof AppError) {
+      res.status(error.statusCode).json({
+        success: false,
+        error: error.message,
+        code: error.code,
+      });
+      return;
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      code: 'INTERNAL_SERVER_ERROR',
+    });
+  }
+};
+
+/**
+ * GET /api/gen-image/user/history
+ * Get all generated images for the authenticated user grouped by date
+ * 
+ * Query parameters:
+ * - limit?: number (default: 500, max: 1000)
+ * 
+ * Response:
+ * {
+ *   success: true,
+ *   data: [
+ *     {
+ *       date: "25/11/2025",
+ *       images: ["https://...", "https://..."]
+ *     },
+ *     {
+ *       date: "22/11/2025",
+ *       images: ["https://...", "https://..."]
+ *     }
+ *   ]
+ * }
+ */
+export const getUserImageHistory = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.user_id;
+    if (!userId) {
+      throw new AppError('Unauthorized', 401, 'UNAUTHORIZED');
+    }
+
+    const limit = Math.min(parseInt(req.query.limit as string) || 500, 1000);
+
+    const imagesByDate = await getUserImagesGroupedByDate(userId, limit);
+
+    res.status(200).json({
+      success: true,
+      data: imagesByDate,
+      totalDates: imagesByDate.length,
+      totalImages: imagesByDate.reduce((sum, group) => sum + group.images.length, 0),
+    });
+  } catch (error) {
+    logger.error('Error in getUserImageHistory controller', { error });
     
     if (error instanceof AppError) {
       res.status(error.statusCode).json({

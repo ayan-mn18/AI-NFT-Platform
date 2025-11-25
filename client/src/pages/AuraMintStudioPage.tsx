@@ -3,15 +3,10 @@ import { useNavigate } from "react-router-dom"
 import { useAuth } from "@/context/AuthContext"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
-import { Sparkles, ArrowLeft, Zap, Image as ImageIcon, Settings2, Crown, Download, Share2, RefreshCw, Send, ChevronDown, Check, Loader2, Upload, X, ImagePlus, Wand2, Maximize2, ChevronLeft, ChevronRight } from "lucide-react"
+import { Sparkles, ArrowLeft, Zap, Image as ImageIcon, Settings2, Crown, Download, Share2, RefreshCw, Send, ChevronDown, Check, Loader2, Upload, X, ImagePlus, Wand2, Maximize2, ChevronLeft, ChevronRight, User, Calendar } from "lucide-react"
 import { toast } from "sonner"
-import { imageGenerationService, createBase64Reference, createUrlReference, type ReferenceImage as ApiReferenceImage } from "@/services/imageGeneration.service"
+import { imageGenerationService, createBase64Reference, createUrlReference, getUserImages, type ReferenceImage as ApiReferenceImage, type ImageWithMetadata } from "@/services/imageGeneration.service"
 import { chatService } from "@/services/chat.service"
-
-// Demo images
-import wolf1 from "@/assets/wolf1.png"
-import wolf2 from "@/assets/wolf2.png"
-import wolfAstronaut from "@/assets/wolf-astronaut.png"
 
 // Types
 interface GeneratedImage {
@@ -38,6 +33,11 @@ interface ImageSettings {
   resolution: string
   model: string
   style: string
+}
+
+// User image history grouped by date
+interface ImageHistoryByDate {
+  [date: string]: ImageWithMetadata[]
 }
 
 // Model options
@@ -78,44 +78,25 @@ export default function AuraMintStudioPage() {
     style: "none",
   })
 
-  // Demo images data
-  const demoImages: GeneratedImage[] = [
-    {
-      id: "demo-1",
-      url: wolfAstronaut,
-      prompt: "A majestic wolf astronaut floating in space with Earth in the background, digital art style",
-      timestamp: new Date(),
-      model: "gemini-2.5-flash",
-      resolution: "1024x1024",
-    },
-    {
-      id: "demo-2",
-      url: wolf1,
-      prompt: "A fierce wolf with glowing eyes in a mystical forest, fantasy art",
-      timestamp: new Date(Date.now() - 60000),
-      model: "gemini-2.5-flash",
-      resolution: "1024x1024",
-    },
-    {
-      id: "demo-3",
-      url: wolf2,
-      prompt: "A cyberpunk wolf with neon accents in a futuristic city, vibrant colors",
-      timestamp: new Date(Date.now() - 120000),
-      model: "gemini-2.5-pro",
-      resolution: "1024x1024",
-    },
-  ]
-
   // Generation state
   const [prompt, setPrompt] = useState("")
   const [isGenerating, setIsGenerating] = useState(false)
-  const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>(demoImages)
-  const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(demoImages[0])
+  const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([])
+  const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(null)
   const [viewingGenerating, setViewingGenerating] = useState(false) // Track if user wants to see the generating state
+
+  // User image history grouped by date
+  const [imageHistory, setImageHistory] = useState<ImageHistoryByDate>({})
+  const [totalImageCount, setTotalImageCount] = useState(0)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true)
 
   // Fullscreen modal state
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [fullscreenImage, setFullscreenImage] = useState<GeneratedImage | null>(null)
+
+  // Mobile settings sheet state
+  const [showMobileSettings, setShowMobileSettings] = useState(false)
+  const [showMobileCredits, setShowMobileCredits] = useState(false)
 
   // Reference images for image-to-image
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([])
@@ -142,25 +123,74 @@ export default function AuraMintStudioPage() {
     setIsFullscreen(true)
   }
 
+  // Get all images combined (current session + history)
+  const getAllImages = useCallback(() => {
+    return [
+      ...generatedImages,
+      ...Object.entries(imageHistory)
+        .sort(([dateA], [dateB]) => {
+          const [dayA, monthA, yearA] = dateA.split('/').map(Number)
+          const [dayB, monthB, yearB] = dateB.split('/').map(Number)
+          const dA = new Date(yearA, monthA - 1, dayA)
+          const dB = new Date(yearB, monthB - 1, dayB)
+          return dB.getTime() - dA.getTime()
+        })
+        .flatMap(([, images]) =>
+          images.map(img => ({
+            id: img.imageId,
+            url: img.imageUrl,
+            prompt: img.prompt,
+            timestamp: new Date(img.timestamp),
+            model: 'gemini',
+            resolution: '1024x1024',
+          }))
+        ),
+    ]
+  }, [generatedImages, imageHistory])
+
   // Navigate in fullscreen
   const navigateFullscreen = (direction: 'prev' | 'next') => {
     if (!fullscreenImage) return
-    const currentIndex = generatedImages.findIndex(img => img.id === fullscreenImage.id)
+    const allImages = getAllImages()
+    const currentIndex = allImages.findIndex(img => img.id === fullscreenImage.id)
     if (currentIndex === -1) return
 
     let newIndex: number
     if (direction === 'prev') {
-      newIndex = currentIndex <= 0 ? generatedImages.length - 1 : currentIndex - 1
+      newIndex = currentIndex <= 0 ? allImages.length - 1 : currentIndex - 1
     } else {
-      newIndex = currentIndex >= generatedImages.length - 1 ? 0 : currentIndex + 1
+      newIndex = currentIndex >= allImages.length - 1 ? 0 : currentIndex + 1
     }
-    setFullscreenImage(generatedImages[newIndex])
+    setFullscreenImage(allImages[newIndex])
   }
 
   // Update mode based on reference images
   useEffect(() => {
     setGenerationMode(referenceImages.length > 0 ? "image-to-image" : "text-to-image")
   }, [referenceImages])
+
+  // Reusable function to fetch image history
+  const refreshImageHistory = useCallback(async () => {
+    if (!user) return
+
+    try {
+      setIsLoadingHistory(true)
+      const response = await getUserImages()
+      if (response.data) {
+        setImageHistory(response.data)
+        setTotalImageCount(response.totalImages || 0)
+      }
+    } catch (error) {
+      console.error("Failed to fetch image history:", error)
+    } finally {
+      setIsLoadingHistory(false)
+    }
+  }, [user])
+
+  // Fetch user image history on mount
+  useEffect(() => {
+    refreshImageHistory()
+  }, [refreshImageHistory])
 
   // Keyboard navigation for images and fullscreen
   useEffect(() => {
@@ -186,28 +216,32 @@ export default function AuraMintStudioPage() {
 
       // Don't navigate if user is typing in the input
       if (document.activeElement === inputRef.current) return
-      if (generatedImages.length === 0) return
+
+      // Get all images (current session + history)
+      const allImages = getAllImages()
+
+      if (allImages.length === 0) return
 
       const currentIndex = selectedImage
-        ? generatedImages.findIndex(img => img.id === selectedImage.id)
+        ? allImages.findIndex(img => img.id === selectedImage.id)
         : -1
 
       if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
         e.preventDefault()
-        const newIndex = currentIndex <= 0 ? generatedImages.length - 1 : currentIndex - 1
-        setSelectedImage(generatedImages[newIndex])
+        const newIndex = currentIndex <= 0 ? allImages.length - 1 : currentIndex - 1
+        setSelectedImage(allImages[newIndex])
         setViewingGenerating(false)
       } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
         e.preventDefault()
-        const newIndex = currentIndex >= generatedImages.length - 1 ? 0 : currentIndex + 1
-        setSelectedImage(generatedImages[newIndex])
+        const newIndex = currentIndex >= allImages.length - 1 ? 0 : currentIndex + 1
+        setSelectedImage(allImages[newIndex])
         setViewingGenerating(false)
       }
     }
 
     window.addEventListener("keydown", handleKeyNavigation)
     return () => window.removeEventListener("keydown", handleKeyNavigation)
-  }, [generatedImages, selectedImage, isFullscreen, fullscreenImage])
+  }, [selectedImage, isFullscreen, fullscreenImage, getAllImages])
 
   useEffect(() => {
     const initChat = async () => {
@@ -383,6 +417,9 @@ export default function AuraMintStudioPage() {
 
       toast.success(`Generated ${settings.numberOfImages} image(s)!`)
       setPrompt("")
+
+      // Refresh history to include the new image
+      refreshImageHistory()
     } catch (error: any) {
       console.error("Generation failed:", error)
       toast.error(error.response?.data?.error || error.message || "Failed to generate image")
@@ -485,8 +522,8 @@ export default function AuraMintStudioPage() {
         onChange={e => handleFiles(e.target.files)}
       />
 
-      {/* Left Panel - Settings */}
-      <aside className="w-72 border-r border-white/10 bg-neutral-900/50 backdrop-blur-sm flex flex-col shrink-0 relative z-10">
+      {/* Left Panel - Settings (Hidden on mobile) */}
+      <aside className="hidden lg:flex w-72 border-r border-white/10 bg-neutral-900/50 backdrop-blur-sm flex-col shrink-0 relative z-10">
         {/* Header */}
         <div className="h-14 border-b border-white/10 flex items-center px-4 gap-3">
           <Button
@@ -669,31 +706,65 @@ export default function AuraMintStudioPage() {
         {/* Header */}
         <header className="h-14 border-b border-white/10 bg-neutral-900/50 backdrop-blur-sm flex items-center justify-between px-4 shrink-0">
           <div className="flex items-center gap-2">
+            {/* Back button on mobile */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="lg:hidden h-8 w-8 text-neutral-400 hover:text-white hover:bg-white/5"
+              onClick={() => navigate("/")}
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
             <div className="w-8 h-8 bg-linear-to-tr from-purple-600 to-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-purple-500/20">
               <Sparkles className="w-5 h-5 text-white" />
             </div>
-            <span className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-linear-to-r from-white to-neutral-400 font-heading">
-              AuraMint Studio
+            <span className="text-lg sm:text-xl font-bold tracking-tight bg-clip-text text-transparent bg-linear-to-r from-white to-neutral-400 font-heading">
+              <span className="hidden sm:inline">AuraMint Studio</span>
+              <span className="sm:hidden">Studio</span>
             </span>
           </div>
-          {/* Mode Toggle */}
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-neutral-800/50 rounded-full border border-white/10">
-            <span className={`text-xs font-medium ${generationMode === "text-to-image" ? "text-purple-400" : "text-neutral-500"}`}>
-              Text
-            </span>
-            <div className="w-px h-3 bg-white/20" />
-            <span className={`text-xs font-medium ${generationMode === "image-to-image" ? "text-blue-400" : "text-neutral-500"}`}>
-              Image
-            </span>
+
+          {/* Right side controls */}
+          <div className="flex items-center gap-2">
+            {/* Mode Toggle - hidden on very small screens */}
+            <div className="hidden xs:flex items-center gap-2 px-3 py-1.5 bg-neutral-800/50 rounded-full border border-white/10">
+              <span className={`text-xs font-medium ${generationMode === "text-to-image" ? "text-purple-400" : "text-neutral-500"}`}>
+                Text
+              </span>
+              <div className="w-px h-3 bg-white/20" />
+              <span className={`text-xs font-medium ${generationMode === "image-to-image" ? "text-blue-400" : "text-neutral-500"}`}>
+                Image
+              </span>
+            </div>
+
+            {/* Mobile Settings Button */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="lg:hidden h-9 w-9 text-neutral-400 hover:text-white hover:bg-white/5"
+              onClick={() => setShowMobileSettings(true)}
+            >
+              <Settings2 className="w-5 h-5" />
+            </Button>
+
+            {/* Mobile Credits Button */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="lg:hidden h-9 w-9 text-neutral-400 hover:text-white hover:bg-white/5"
+              onClick={() => setShowMobileCredits(true)}
+            >
+              <User className="w-5 h-5" />
+            </Button>
           </div>
         </header>
 
         {/* Image Display / Generation Area */}
         <div className="flex-1 overflow-hidden">
           <ScrollArea className="h-full">
-            <div className="max-w-4xl mx-auto p-6 pb-48">
-              {generatedImages.length === 0 ? (
-                /* Empty State */
+            <div className="max-w-4xl mx-auto p-4 sm:p-6 pb-48">
+              {generatedImages.length === 0 && Object.keys(imageHistory).length === 0 && !isLoadingHistory ? (
+                /* Empty State - only show when no current session images AND no history */
                 <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-6">
                   <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center backdrop-blur-sm border border-white/10 shadow-lg">
                     <ImageIcon className="w-10 h-10 text-white/60" />
@@ -826,7 +897,7 @@ export default function AuraMintStudioPage() {
                           </Button>
                         </div>
                         {/* Navigation hint */}
-                        {generatedImages.length > 1 && (
+                        {(generatedImages.length + Object.values(imageHistory).flat().length) > 1 && (
                           <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-black/60 backdrop-blur-sm rounded-full text-xs text-neutral-300 opacity-0 group-hover:opacity-100 transition-opacity">
                             Use ← → arrow keys to navigate
                           </div>
@@ -842,7 +913,7 @@ export default function AuraMintStudioPage() {
                   {(generatedImages.length > 1 || isGenerating) && (
                     <div>
                       <h4 className="text-sm font-medium text-neutral-400 mb-3">
-                        {isGenerating ? "Generating..." : "Previous Generations"}
+                        {isGenerating ? "Generating..." : "This Session"}
                       </h4>
                       <div className="grid grid-cols-4 gap-3">
                         {/* Generating placeholder tile */}
@@ -884,6 +955,77 @@ export default function AuraMintStudioPage() {
                           </button>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {/* Previous Generations History - Grouped by Date */}
+                  {(Object.keys(imageHistory).length > 0 || isLoadingHistory) && (
+                    <div className="mt-6 space-y-6">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-medium text-neutral-400">
+                          Previous Generations
+                        </h4>
+                        {totalImageCount > 0 && (
+                          <span className="text-xs text-neutral-500">
+                            {totalImageCount} total images
+                          </span>
+                        )}
+                      </div>
+
+                      {isLoadingHistory ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="w-6 h-6 text-purple-500 animate-spin" />
+                          <span className="ml-2 text-sm text-neutral-400">Loading history...</span>
+                        </div>
+                      ) : (
+                        Object.entries(imageHistory)
+                          .sort(([dateA], [dateB]) => {
+                            // Parse DD/MM/YYYY format and sort descending (newest first)
+                            const [dayA, monthA, yearA] = dateA.split('/').map(Number)
+                            const [dayB, monthB, yearB] = dateB.split('/').map(Number)
+                            const dA = new Date(yearA, monthA - 1, dayA)
+                            const dB = new Date(yearB, monthB - 1, dayB)
+                            return dB.getTime() - dA.getTime()
+                          })
+                          .map(([date, images]) => (
+                            <div key={date} className="space-y-3">
+                              <div className="flex items-center gap-2 text-xs text-neutral-500">
+                                <Calendar className="w-3.5 h-3.5" />
+                                <span>{date}</span>
+                                <span className="text-neutral-600">•</span>
+                                <span>{images.length} {images.length === 1 ? 'image' : 'images'}</span>
+                              </div>
+                              <div className="grid grid-cols-4 gap-3">
+                                {images.map((img, idx) => (
+                                  <button
+                                    key={`${img.imageId}-${idx}`}
+                                    onClick={() => {
+                                      setSelectedImage({
+                                        id: img.imageId,
+                                        url: img.imageUrl,
+                                        prompt: img.prompt,
+                                        timestamp: new Date(img.timestamp),
+                                        model: 'gemini',
+                                        resolution: '1024x1024',
+                                      })
+                                      setViewingGenerating(false)
+                                    }}
+                                    className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${selectedImage?.id === img.imageId && !viewingGenerating
+                                      ? "border-purple-500 ring-2 ring-purple-500/30"
+                                      : "border-white/10 hover:border-white/30"
+                                      }`}
+                                  >
+                                    <img
+                                      src={img.imageUrl}
+                                      alt={img.prompt}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))
+                      )}
                     </div>
                   )}
                 </div>
@@ -967,7 +1109,7 @@ export default function AuraMintStudioPage() {
                   }
                   rows={1}
                   disabled={isGenerating}
-                  className="flex-1 bg-transparent text-white placeholder:text-neutral-500 resize-none py-3 text-sm focus:outline-none min-h-12 max-h-32 leading-normal scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
+                  className="flex-1 bg-transparent text-white placeholder:text-neutral-500 resize-none py-3 text-sm focus:outline-none min-h-12 max-h-32 leading-normal scrollbar-none"
                   style={{ overflowY: 'auto' }}
                   onInput={e => {
                     const target = e.target as HTMLTextAreaElement
@@ -989,7 +1131,7 @@ export default function AuraMintStudioPage() {
               </div>
             </div>
 
-            <p className="text-xs text-center text-neutral-500">
+            <p className="text-xs text-center text-neutral-500 hidden sm:block">
               {referenceImages.length > 0 ? (
                 <span className="text-blue-400">Image-to-Image mode</span>
               ) : (
@@ -1001,8 +1143,8 @@ export default function AuraMintStudioPage() {
         </div>
       </main >
 
-      {/* Right Panel - Credits & Rate Limiting */}
-      < aside className="w-64 border-l border-white/10 bg-neutral-900/50 backdrop-blur-sm flex flex-col shrink-0 relative z-10" >
+      {/* Right Panel - Credits & Rate Limiting (Hidden on mobile) */}
+      <aside className="hidden lg:flex w-64 border-l border-white/10 bg-neutral-900/50 backdrop-blur-sm flex-col shrink-0 relative z-10">
         {/* Header */}
         <div className="h-14 border-b border-white/10 flex items-center px-4 gap-2" >
           <Zap className="w-4 h-4 text-yellow-400" />
@@ -1124,7 +1266,7 @@ export default function AuraMintStudioPage() {
           </button>
 
           {/* Navigation arrows */}
-          {generatedImages.length > 1 && (
+          {(generatedImages.length + Object.values(imageHistory).flat().length) > 1 && (
             <>
               <button
                 className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
@@ -1220,6 +1362,275 @@ export default function AuraMintStudioPage() {
                 <span>{new Date(fullscreenImage.timestamp).toLocaleString()}</span>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Settings Bottom Sheet */}
+      {showMobileSettings && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowMobileSettings(false)}
+          />
+          {/* Sheet */}
+          <div className="absolute bottom-0 left-0 right-0 bg-neutral-900 border-t border-white/10 rounded-t-3xl max-h-[85vh] overflow-hidden animate-in slide-in-from-bottom duration-300">
+            {/* Handle */}
+            <div className="flex justify-center py-3">
+              <div className="w-10 h-1 bg-white/20 rounded-full" />
+            </div>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 pb-4 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <Settings2 className="w-5 h-5 text-purple-400" />
+                <span className="font-semibold text-lg">Generation Settings</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-neutral-400 hover:text-white"
+                onClick={() => setShowMobileSettings(false)}
+              >
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+
+            {/* Content */}
+            <ScrollArea className="max-h-[calc(85vh-100px)] p-6">
+              <div className="space-y-6">
+                {/* Generation Mode */}
+                <div className="p-4 rounded-xl border border-white/10 bg-neutral-800/30">
+                  <div className="flex items-center gap-2 mb-2">
+                    {generationMode === "text-to-image" ? (
+                      <Sparkles className="w-4 h-4 text-purple-400" />
+                    ) : (
+                      <ImagePlus className="w-4 h-4 text-blue-400" />
+                    )}
+                    <span className="text-sm font-medium">
+                      {generationMode === "text-to-image" ? "Text to Image" : "Image to Image"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-neutral-500">
+                    {generationMode === "text-to-image"
+                      ? "Generate images from your text description"
+                      : "Edit or create variations using reference images"}
+                  </p>
+                </div>
+
+                {/* Model Selection */}
+                <div className="space-y-3">
+                  <label className="text-xs font-medium text-neutral-400 uppercase tracking-wider">Model</label>
+                  <div className="grid gap-2">
+                    {MODELS.map(model => (
+                      <button
+                        key={model.id}
+                        onClick={() => setSettings(s => ({ ...s, model: model.id }))}
+                        className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${settings.model === model.id
+                          ? "bg-purple-500/10 border-purple-500/50"
+                          : "bg-neutral-800/50 border-white/10 hover:bg-neutral-800"
+                          }`}
+                      >
+                        <model.icon className={`w-5 h-5 ${settings.model === model.id ? "text-purple-400" : "text-neutral-400"}`} />
+                        <div className="flex-1 text-left">
+                          <div className="text-sm font-medium">{model.name}</div>
+                          <div className="text-xs text-neutral-500">{model.description}</div>
+                        </div>
+                        {settings.model === model.id && <Check className="w-4 h-4 text-purple-400" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Resolution */}
+                <div className="space-y-3">
+                  <label className="text-xs font-medium text-neutral-400 uppercase tracking-wider">Resolution</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {RESOLUTIONS.map(res => (
+                      <button
+                        key={res.id}
+                        onClick={() => setSettings(s => ({ ...s, resolution: res.id }))}
+                        className={`p-3 rounded-xl border text-center transition-colors ${settings.resolution === res.id
+                          ? "bg-purple-500/10 border-purple-500/50"
+                          : "bg-neutral-800/50 border-white/10 hover:bg-neutral-800"
+                          }`}
+                      >
+                        <div className="text-sm font-medium">{res.label}</div>
+                        <div className="text-xs text-neutral-500">{res.description}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Style */}
+                <div className="space-y-3">
+                  <label className="text-xs font-medium text-neutral-400 uppercase tracking-wider">Style</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {STYLES.map(style => (
+                      <button
+                        key={style.id}
+                        onClick={() => setSettings(s => ({ ...s, style: style.id }))}
+                        className={`p-3 rounded-xl border text-sm transition-colors ${settings.style === style.id
+                          ? "bg-purple-500/10 border-purple-500/50"
+                          : "bg-neutral-800/50 border-white/10 hover:bg-neutral-800"
+                          }`}
+                      >
+                        {style.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Number of Images */}
+                <div className="space-y-3">
+                  <label className="text-xs font-medium text-neutral-400 uppercase tracking-wider">Number of Images</label>
+                  <div className="flex gap-3">
+                    {[1, 2, 4].map(num => (
+                      <button
+                        key={num}
+                        onClick={() => setSettings(s => ({ ...s, numberOfImages: num }))}
+                        className={`flex-1 py-3 rounded-xl text-sm font-medium transition-all border ${settings.numberOfImages === num
+                          ? "bg-purple-500/20 border-purple-500/50 text-purple-300"
+                          : "bg-neutral-800/50 border-white/10 text-neutral-400 hover:bg-neutral-800"
+                          }`}
+                      >
+                        {num}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom padding for safe area */}
+              <div className="h-8" />
+            </ScrollArea>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Credits Bottom Sheet */}
+      {showMobileCredits && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowMobileCredits(false)}
+          />
+          {/* Sheet */}
+          <div className="absolute bottom-0 left-0 right-0 bg-neutral-900 border-t border-white/10 rounded-t-3xl max-h-[85vh] overflow-hidden animate-in slide-in-from-bottom duration-300">
+            {/* Handle */}
+            <div className="flex justify-center py-3">
+              <div className="w-10 h-1 bg-white/20 rounded-full" />
+            </div>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 pb-4 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <Zap className="w-5 h-5 text-yellow-400" />
+                <span className="font-semibold text-lg">Usage & Credits</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-neutral-400 hover:text-white"
+                onClick={() => setShowMobileCredits(false)}
+              >
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+
+            {/* Content */}
+            <ScrollArea className="max-h-[calc(85vh-100px)] p-6">
+              <div className="space-y-6">
+                {/* Credits Display */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-neutral-400">Credits</span>
+                    <span className="text-sm text-purple-400 font-medium">{credits} remaining</span>
+                  </div>
+                  <div className="relative h-3 bg-neutral-800 rounded-full overflow-hidden">
+                    <div
+                      className="absolute inset-y-0 left-0 bg-linear-to-r from-purple-600 to-indigo-600 rounded-full transition-all"
+                      style={{ width: `${credits}%` }}
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full border-purple-500/30 text-purple-400 hover:bg-purple-500/10 hover:text-purple-300"
+                  >
+                    <Crown className="w-4 h-4 mr-2" />
+                    Get More Credits
+                  </Button>
+                </div>
+
+                {/* Daily Usage */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-neutral-400">Daily Limit</span>
+                    <span className="text-sm text-neutral-300">{dailyGenerations}/{maxDailyGenerations}</span>
+                  </div>
+                  <div className="relative h-3 bg-neutral-800 rounded-full overflow-hidden">
+                    <div
+                      className="absolute inset-y-0 left-0 bg-linear-to-r from-blue-600 to-cyan-600 rounded-full transition-all"
+                      style={{ width: `${(dailyGenerations / maxDailyGenerations) * 100}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-neutral-500">
+                    Resets at midnight UTC
+                  </p>
+                </div>
+
+                {/* Rate Limit Info */}
+                <div className="p-4 bg-neutral-800/50 rounded-xl border border-white/5 space-y-4">
+                  <h4 className="text-sm font-medium text-white flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-yellow-400" />
+                    Rate Limits
+                  </h4>
+                  <div className="space-y-3 text-sm">
+                    <div className="flex justify-between text-neutral-400">
+                      <span>Per minute:</span>
+                      <span className="text-white">10 generations</span>
+                    </div>
+                    <div className="flex justify-between text-neutral-400">
+                      <span>Per hour:</span>
+                      <span className="text-white">100 generations</span>
+                    </div>
+                    <div className="flex justify-between text-neutral-400">
+                      <span>Per day:</span>
+                      <span className="text-white">{maxDailyGenerations} generations</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* User Info */}
+                {user && (
+                  <div className="p-4 bg-neutral-800/50 rounded-xl border border-white/5 space-y-2">
+                    <h4 className="text-sm font-medium text-white">Account</h4>
+                    <p className="text-sm text-neutral-400 truncate">{user.email}</p>
+                    <p className="text-xs text-neutral-500">Free Plan</p>
+                  </div>
+                )}
+
+                {/* Session Stats */}
+                <div className="space-y-3">
+                  <span className="text-sm font-medium text-neutral-400">Session Stats</span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-4 bg-neutral-800/50 rounded-xl border border-white/5 text-center">
+                      <div className="text-2xl font-bold text-white">{generatedImages.length}</div>
+                      <div className="text-xs text-neutral-500">Generated</div>
+                    </div>
+                    <div className="p-4 bg-neutral-800/50 rounded-xl border border-white/5 text-center">
+                      <div className="text-2xl font-bold text-white">{referenceImages.length}</div>
+                      <div className="text-xs text-neutral-500">References</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom padding for safe area */}
+              <div className="h-8" />
+            </ScrollArea>
           </div>
         </div>
       )}

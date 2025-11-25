@@ -343,36 +343,165 @@ export const getUserImages = async (
   try {
     const supabase = getSupabaseClient();
 
-    // Join messages with chats to filter by user_id
+    // First get all chat IDs for this user
+    const { data: userChats, error: chatsError } = await supabase
+      .from('chats')
+      .select('chat_id')
+      .eq('user_id', userId);
+
+    if (chatsError) {
+      logger.error('Failed to get user chats', { error: chatsError, userId });
+      throw new AppError('Failed to retrieve user chats', 500, 'DATABASE_ERROR');
+    }
+
+    if (!userChats || userChats.length === 0) {
+      return [];
+    }
+
+    const chatIds = userChats.map((chat: any) => chat.chat_id);
+
+    // Get messages with image type from user's chats
     const { data, error } = await supabase
       .from('messages')
-      .select(`
-        message_id,
-        content,
-        metadata,
-        created_at,
-        chats!inner(user_id)
-      `)
-      .eq('chats.user_id', userId)
+      .select('message_id, content, metadata, created_at')
+      .in('chat_id', chatIds)
       .eq('role', 'assistant')
-      .not('metadata->type', 'is', null)
-      .eq('metadata->type', 'image')
+      .not('metadata', 'is', null)
       .order('created_at', { ascending: false })
       .limit(limit);
 
     if (error) {
+      logger.error('Failed to get messages', { error, userId });
       throw new AppError('Failed to retrieve user images', 500, 'DATABASE_ERROR');
     }
 
-    return (data || []).map((msg: any) => ({
-      imageId: msg.metadata.imageId,
-      imageUrl: msg.metadata.imageUrl,
-      s3Key: msg.metadata.s3Key,
-      prompt: msg.metadata.prompt,
-      timestamp: new Date(msg.created_at),
-    }));
+    // Filter for image type messages and map to response
+    return (data || [])
+      .filter((msg: any) => msg.metadata?.type === 'image' && msg.metadata?.imageUrl)
+      .map((msg: any) => ({
+        imageId: msg.metadata.imageId,
+        imageUrl: msg.metadata.imageUrl,
+        s3Key: msg.metadata.s3Key,
+        prompt: msg.metadata.prompt,
+        timestamp: new Date(msg.created_at),
+      }));
   } catch (error) {
     logger.error('Failed to get user images', { error, userId });
+    throw error;
+  }
+};
+
+/**
+ * Image with full metadata
+ */
+export interface ImageWithMetadata {
+  imageId: string;
+  imageUrl: string;
+  s3Key: string;
+  prompt: string;
+  timestamp: string; // ISO string
+}
+
+/**
+ * Image data grouped by date with full metadata
+ */
+export interface ImagesByDate {
+  date: string; // DD/MM/YYYY format
+  images: ImageWithMetadata[]; // Array of images with metadata
+}
+
+/**
+ * Get all generated images for a user grouped by date
+ * @param userId - User ID
+ * @param limit - Maximum number of images to return (default: 500)
+ * @returns Array of images grouped by date, sorted by date descending
+ */
+export const getUserImagesGroupedByDate = async (
+  userId: string,
+  limit: number = 500
+): Promise<ImagesByDate[]> => {
+  try {
+    const supabase = getSupabaseClient();
+
+    // First get all chat IDs for this user
+    const { data: userChats, error: chatsError } = await supabase
+      .from('chats')
+      .select('chat_id')
+      .eq('user_id', userId);
+
+    if (chatsError) {
+      logger.error('Failed to get user chats for history', { error: chatsError, userId });
+      throw new AppError('Failed to retrieve user chats', 500, 'DATABASE_ERROR');
+    }
+
+    if (!userChats || userChats.length === 0) {
+      return [];
+    }
+
+    const chatIds = userChats.map((chat: any) => chat.chat_id);
+
+    // Get messages from user's chats
+    const { data, error } = await supabase
+      .from('messages')
+      .select('message_id, metadata, created_at')
+      .in('chat_id', chatIds)
+      .eq('role', 'assistant')
+      .not('metadata', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      logger.error('Database error in getUserImagesGroupedByDate', { error, userId });
+      throw new AppError('Failed to retrieve user images', 500, 'DATABASE_ERROR');
+    }
+
+    // Group images by date (filter for image type)
+    const groupedMap = new Map<string, ImageWithMetadata[]>();
+
+    (data || []).forEach((msg: any) => {
+      if (msg.metadata?.type === 'image' && msg.metadata?.imageUrl) {
+        const createdAt = new Date(msg.created_at);
+        // Format date as DD/MM/YYYY
+        const dateKey = `${createdAt.getDate().toString().padStart(2, '0')}/${(createdAt.getMonth() + 1).toString().padStart(2, '0')}/${createdAt.getFullYear()}`;
+        
+        if (!groupedMap.has(dateKey)) {
+          groupedMap.set(dateKey, []);
+        }
+        
+        groupedMap.get(dateKey)!.push({
+          imageId: msg.metadata.imageId,
+          imageUrl: msg.metadata.imageUrl,
+          s3Key: msg.metadata.s3Key,
+          prompt: msg.metadata.prompt,
+          timestamp: msg.created_at,
+        });
+      }
+    });
+
+    // Convert map to array sorted by date (newest first)
+    const result: ImagesByDate[] = [];
+    groupedMap.forEach((images, date) => {
+      result.push({ date, images });
+    });
+
+    // Sort by date descending (parse DD/MM/YYYY format)
+    result.sort((a, b) => {
+      const [dayA, monthA, yearA] = a.date.split('/').map(Number);
+      const [dayB, monthB, yearB] = b.date.split('/').map(Number);
+      const dateA = new Date(yearA, monthA - 1, dayA);
+      const dateB = new Date(yearB, monthB - 1, dayB);
+      return dateB.getTime() - dateA.getTime();
+    });
+
+    logger.info('Retrieved user images grouped by date', {
+      userId,
+      totalDates: result.length,
+      totalImages: result.reduce((sum, group) => sum + group.images.length, 0),
+    });
+
+    return result;
+  } catch (error) {
+    logger.error('Failed to get user images grouped by date', { error, userId });
     throw error;
   }
 };
