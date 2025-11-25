@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button"
-import { Sparkles, Wallet, User } from "lucide-react"
+import { Sparkles, Wallet, User, MessageCircle } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { useEffect, useState, useRef } from "react"
 import { useAuth } from "@/context/AuthContext"
@@ -76,24 +76,34 @@ function LandingPage() {
             AuraMint
           </span>
         </div>
-        {isAuthenticated ? (
+        <div className="flex items-center gap-2">
           <Button
             variant="ghost"
             className="text-neutral-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer gap-2"
-            onClick={() => navigate('/profile')}
+            onClick={() => navigate('/auramint-support')}
           >
-            <User className="w-4 h-4" />
-            Profile
+            <MessageCircle className="w-4 h-4" />
+            Support
           </Button>
-        ) : (
-          <Button
-            variant="ghost"
-            className="text-neutral-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
-            onClick={() => navigate('/register')}
-          >
-            Login / Sign Up
-          </Button>
-        )}
+          {isAuthenticated ? (
+            <Button
+              variant="ghost"
+              className="text-neutral-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer gap-2"
+              onClick={() => navigate('/profile')}
+            >
+              <User className="w-4 h-4" />
+              Profile
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              className="text-neutral-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              onClick={() => navigate('/register')}
+            >
+              Login / Sign Up
+            </Button>
+          )}
+        </div>
       </nav>
 
       {/* Hero Section */}
@@ -130,7 +140,7 @@ function LandingPage() {
             <Button
               size="lg"
               className="bg-purple-600 hover:bg-purple-700 text-white px-8 h-14 rounded-full text-lg shadow-lg shadow-purple-500/25 transition-all hover:scale-105 cursor-pointer"
-              onClick={() => navigate('/nft-gen')}
+              onClick={() => navigate('/auramint-studio')}
             >
               <Sparkles className="mr-2 h-5 w-5" />
               Start Generating

@@ -21,7 +21,7 @@ function App() {
 
           {/* Protected Routes */}
           <Route element={<ProtectedRoute />}>
-            <Route path="/nft-gen" element={<NFTGenPage />} />
+            <Route path="/auramint-support" element={<NFTGenPage />} />
             <Route path="/auramint-studio" element={<AuraMintStudioPage />} />
             <Route path="/profile" element={<ProfilePage />} />
           </Route>

@@ -92,7 +92,7 @@ export default function RegisterPage() {
         email: registeredEmail,
         otp: data.otp,
       })
-      navigate('/nft-gen')
+      navigate('/auramint-studio')
     } catch (error) {
       console.error(error)
     } finally {

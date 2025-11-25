@@ -39,7 +39,7 @@ export default function LoginPage() {
     setIsLoading(true)
     try {
       await login({ email: data.email, password: data.password })
-      navigate('/nft-gen')
+      navigate('/auramint-studio')
     } catch (error) {
       console.error(error)
     } finally {

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { useAuth } from "@/context/AuthContext"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
-import { Sparkles, ArrowLeft, Zap, Image as ImageIcon, Settings2, Crown, Download, Share2, RefreshCw, Send, ChevronDown, Check, Loader2, Upload, X, ImagePlus, Wand2 } from "lucide-react"
+import { Sparkles, ArrowLeft, Zap, Image as ImageIcon, Settings2, Crown, Download, Share2, RefreshCw, Send, ChevronDown, Check, Loader2, Upload, X, ImagePlus, Wand2, Maximize2, ChevronLeft, ChevronRight } from "lucide-react"
 import { toast } from "sonner"
 import { imageGenerationService, createBase64Reference, createUrlReference, type ReferenceImage as ApiReferenceImage } from "@/services/imageGeneration.service"
 import { chatService } from "@/services/chat.service"
@@ -111,6 +111,11 @@ export default function AuraMintStudioPage() {
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>(demoImages)
   const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(demoImages[0])
+  const [viewingGenerating, setViewingGenerating] = useState(false) // Track if user wants to see the generating state
+
+  // Fullscreen modal state
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [fullscreenImage, setFullscreenImage] = useState<GeneratedImage | null>(null)
 
   // Reference images for image-to-image
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([])
@@ -131,10 +136,78 @@ export default function AuraMintStudioPage() {
   // Chat session for image generation
   const [chatId, setChatId] = useState<string | null>(null)
 
+  // Open fullscreen modal
+  const openFullscreen = (image: GeneratedImage) => {
+    setFullscreenImage(image)
+    setIsFullscreen(true)
+  }
+
+  // Navigate in fullscreen
+  const navigateFullscreen = (direction: 'prev' | 'next') => {
+    if (!fullscreenImage) return
+    const currentIndex = generatedImages.findIndex(img => img.id === fullscreenImage.id)
+    if (currentIndex === -1) return
+
+    let newIndex: number
+    if (direction === 'prev') {
+      newIndex = currentIndex <= 0 ? generatedImages.length - 1 : currentIndex - 1
+    } else {
+      newIndex = currentIndex >= generatedImages.length - 1 ? 0 : currentIndex + 1
+    }
+    setFullscreenImage(generatedImages[newIndex])
+  }
+
   // Update mode based on reference images
   useEffect(() => {
     setGenerationMode(referenceImages.length > 0 ? "image-to-image" : "text-to-image")
   }, [referenceImages])
+
+  // Keyboard navigation for images and fullscreen
+  useEffect(() => {
+    const handleKeyNavigation = (e: KeyboardEvent) => {
+      // Handle fullscreen modal
+      if (isFullscreen) {
+        if (e.key === "Escape") {
+          setIsFullscreen(false)
+          return
+        }
+        if (e.key === "ArrowLeft") {
+          e.preventDefault()
+          navigateFullscreen('prev')
+          return
+        }
+        if (e.key === "ArrowRight") {
+          e.preventDefault()
+          navigateFullscreen('next')
+          return
+        }
+        return
+      }
+
+      // Don't navigate if user is typing in the input
+      if (document.activeElement === inputRef.current) return
+      if (generatedImages.length === 0) return
+
+      const currentIndex = selectedImage
+        ? generatedImages.findIndex(img => img.id === selectedImage.id)
+        : -1
+
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        e.preventDefault()
+        const newIndex = currentIndex <= 0 ? generatedImages.length - 1 : currentIndex - 1
+        setSelectedImage(generatedImages[newIndex])
+        setViewingGenerating(false)
+      } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        e.preventDefault()
+        const newIndex = currentIndex >= generatedImages.length - 1 ? 0 : currentIndex + 1
+        setSelectedImage(generatedImages[newIndex])
+        setViewingGenerating(false)
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyNavigation)
+    return () => window.removeEventListener("keydown", handleKeyNavigation)
+  }, [generatedImages, selectedImage, isFullscreen, fullscreenImage])
 
   useEffect(() => {
     const initChat = async () => {
@@ -257,6 +330,7 @@ export default function AuraMintStudioPage() {
     }
 
     setIsGenerating(true)
+    setViewingGenerating(true) // Show the loading state
 
     try {
       let enhancedPrompt = prompt
@@ -326,19 +400,37 @@ export default function AuraMintStudioPage() {
 
   const handleDownload = async (image: GeneratedImage) => {
     try {
-      const response = await fetch(image.url)
+      // Generate a random filename with timestamp
+      const randomId = Math.random().toString(36).substring(2, 10)
+      const timestamp = Date.now()
+      const filename = `auramint-${timestamp}-${randomId}.png`
+
+      // For S3 URLs or any external URLs, we need to fetch through our approach
+      const response = await fetch(image.url, {
+        mode: 'cors',
+        credentials: 'omit', // Don't send cookies to S3
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch image')
+      }
+
       const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
+      const blobUrl = window.URL.createObjectURL(blob)
       const a = document.createElement("a")
-      a.href = url
-      a.download = `auramint-${image.id}.png`
+      a.href = blobUrl
+      a.download = filename
+      a.style.display = 'none'
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
+      window.URL.revokeObjectURL(blobUrl)
       toast.success("Image downloaded!")
     } catch (error) {
-      toast.error("Failed to download image")
+      console.error('Download error:', error)
+      // Fallback: open in new tab if direct download fails
+      window.open(image.url, '_blank')
+      toast.info("Opening image in new tab - right click to save")
     }
   }
 
@@ -401,7 +493,7 @@ export default function AuraMintStudioPage() {
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-neutral-400 hover:text-white hover:bg-white/5"
-            onClick={() => navigate("/nft-gen")}
+            onClick={() => navigate("/")}
           >
             <ArrowLeft className="w-4 h-4" />
           </Button>
@@ -627,17 +719,75 @@ export default function AuraMintStudioPage() {
               ) : (
                 /* Generated Images Grid */
                 <div className="space-y-6">
-                  {/* Selected Image Preview */}
-                  {selectedImage && (
+                  {/* Selected Image Preview or Loading State */}
+                  {isGenerating && viewingGenerating ? (
+                    /* Cool Loading Animation */
+                    <div className="space-y-4">
+                      <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-neutral-900/50 aspect-square">
+                        {/* Animated gradient background */}
+                        <div className="absolute inset-0 bg-linear-to-br from-purple-900/40 via-neutral-900 to-blue-900/40 animate-pulse" />
+
+                        {/* Animated circles */}
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="relative">
+                            {/* Outer ring */}
+                            <div className="absolute inset-0 w-32 h-32 border-4 border-purple-500/20 rounded-full animate-ping" style={{ animationDuration: '2s' }} />
+                            {/* Middle ring */}
+                            <div className="absolute inset-2 w-28 h-28 border-4 border-indigo-500/30 rounded-full animate-ping" style={{ animationDuration: '1.5s', animationDelay: '0.2s' }} />
+                            {/* Inner spinning ring */}
+                            <div className="w-32 h-32 border-4 border-transparent border-t-purple-500 border-r-indigo-500 rounded-full animate-spin" style={{ animationDuration: '1s' }} />
+                            {/* Center icon */}
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <div className="w-16 h-16 bg-linear-to-br from-purple-600 to-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-purple-500/30">
+                                <Sparkles className="w-8 h-8 text-white animate-pulse" />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Floating particles */}
+                        <div className="absolute inset-0 overflow-hidden">
+                          {[...Array(6)].map((_, i) => (
+                            <div
+                              key={i}
+                              className="absolute w-2 h-2 bg-purple-400/60 rounded-full animate-bounce"
+                              style={{
+                                left: `${15 + i * 15}%`,
+                                top: `${20 + (i % 3) * 25}%`,
+                                animationDelay: `${i * 0.2}s`,
+                                animationDuration: `${1 + i * 0.3}s`,
+                              }}
+                            />
+                          ))}
+                        </div>
+
+                        {/* Bottom text */}
+                        <div className="absolute bottom-6 left-0 right-0 text-center">
+                          <p className="text-sm font-medium text-white/80 mb-1">Generating your masterpiece...</p>
+                          <p className="text-xs text-neutral-400">This may take a few seconds</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : selectedImage ? (
                     <div className="space-y-4">
                       <div className="relative group rounded-2xl overflow-hidden border border-white/10 bg-neutral-900/50">
                         <img
                           src={selectedImage.url}
                           alt={selectedImage.prompt}
-                          className="w-full aspect-square object-cover"
+                          className="w-full aspect-square object-cover cursor-pointer"
+                          onClick={() => openFullscreen(selectedImage)}
                         />
                         {/* Overlay Actions */}
                         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-12 w-12 rounded-full bg-white/10 hover:bg-white/20 text-white"
+                            onClick={() => openFullscreen(selectedImage)}
+                            title="Fullscreen"
+                          >
+                            <Maximize2 className="w-5 h-5" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -675,23 +825,53 @@ export default function AuraMintStudioPage() {
                             <ImagePlus className="w-5 h-5" />
                           </Button>
                         </div>
+                        {/* Navigation hint */}
+                        {generatedImages.length > 1 && (
+                          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-black/60 backdrop-blur-sm rounded-full text-xs text-neutral-300 opacity-0 group-hover:opacity-100 transition-opacity">
+                            Use ← → arrow keys to navigate
+                          </div>
+                        )}
                       </div>
                       <p className="text-sm text-neutral-400 px-1">
                         <span className="text-white/80">Prompt:</span> {selectedImage.prompt}
                       </p>
                     </div>
-                  )}
+                  ) : null}
 
                   {/* Image Grid */}
-                  {generatedImages.length > 1 && (
+                  {(generatedImages.length > 1 || isGenerating) && (
                     <div>
-                      <h4 className="text-sm font-medium text-neutral-400 mb-3">Previous Generations</h4>
+                      <h4 className="text-sm font-medium text-neutral-400 mb-3">
+                        {isGenerating ? "Generating..." : "Previous Generations"}
+                      </h4>
                       <div className="grid grid-cols-4 gap-3">
+                        {/* Generating placeholder tile */}
+                        {isGenerating && (
+                          <button
+                            onClick={() => setViewingGenerating(true)}
+                            className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${viewingGenerating
+                              ? "border-purple-500 ring-2 ring-purple-500/30"
+                              : "border-white/10 hover:border-white/30"
+                              }`}
+                          >
+                            <div className="absolute inset-0 bg-neutral-900 flex items-center justify-center">
+                              <div className="relative">
+                                <div className="w-8 h-8 border-2 border-transparent border-t-purple-500 border-r-indigo-500 rounded-full animate-spin" />
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                  <Sparkles className="w-3 h-3 text-purple-400" />
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        )}
                         {generatedImages.map((img, idx) => (
                           <button
                             key={`${img.id}-${idx}`}
-                            onClick={() => setSelectedImage(img)}
-                            className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${selectedImage?.id === img.id
+                            onClick={() => {
+                              setSelectedImage(img)
+                              setViewingGenerating(false)
+                            }}
+                            className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${selectedImage?.id === img.id && !viewingGenerating
                               ? "border-purple-500 ring-2 ring-purple-500/30"
                               : "border-white/10 hover:border-white/30"
                               }`}
@@ -787,8 +967,8 @@ export default function AuraMintStudioPage() {
                   }
                   rows={1}
                   disabled={isGenerating}
-                  className="flex-1 bg-transparent text-white placeholder:text-neutral-500 resize-none py-3 text-sm focus:outline-none min-h-12 max-h-32 leading-normal"
-                  style={{ overflow: "hidden" }}
+                  className="flex-1 bg-transparent text-white placeholder:text-neutral-500 resize-none py-3 text-sm focus:outline-none min-h-12 max-h-32 leading-normal scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
+                  style={{ overflowY: 'auto' }}
                   onInput={e => {
                     const target = e.target as HTMLTextAreaElement
                     target.style.height = "auto"
@@ -928,6 +1108,121 @@ export default function AuraMintStudioPage() {
           </Button>
         </div>
       </aside >
+
+      {/* Fullscreen Modal */}
+      {isFullscreen && fullscreenImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm flex items-center justify-center"
+          onClick={() => setIsFullscreen(false)}
+        >
+          {/* Close button */}
+          <button
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10"
+            onClick={() => setIsFullscreen(false)}
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          {/* Navigation arrows */}
+          {generatedImages.length > 1 && (
+            <>
+              <button
+                className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  navigateFullscreen('prev')
+                }}
+              >
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+              <button
+                className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  navigateFullscreen('next')
+                }}
+              >
+                <ChevronRight className="w-6 h-6" />
+              </button>
+            </>
+          )}
+
+          {/* Image container */}
+          <div
+            className="max-w-[90vw] max-h-[85vh] flex flex-col items-center gap-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={fullscreenImage.url}
+              alt={fullscreenImage.prompt}
+              className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-2xl"
+            />
+
+            {/* Image info and actions */}
+            <div className="flex flex-col items-center gap-4 max-w-2xl">
+              <p className="text-sm text-neutral-300 text-center line-clamp-2">
+                {fullscreenImage.prompt}
+              </p>
+
+              {/* Action buttons */}
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-10 px-4 rounded-full bg-white/10 hover:bg-white/20 text-white gap-2"
+                  onClick={() => handleDownload(fullscreenImage)}
+                >
+                  <Download className="w-4 h-4" />
+                  Download
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-10 px-4 rounded-full bg-white/10 hover:bg-white/20 text-white gap-2"
+                  onClick={() => handleShare(fullscreenImage)}
+                >
+                  <Share2 className="w-4 h-4" />
+                  Copy URL
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-10 px-4 rounded-full bg-white/10 hover:bg-white/20 text-white gap-2"
+                  onClick={() => {
+                    handleUseAsReference(fullscreenImage)
+                    setIsFullscreen(false)
+                  }}
+                >
+                  <ImagePlus className="w-4 h-4" />
+                  Use as Reference
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-10 px-4 rounded-full bg-white/10 hover:bg-white/20 text-white gap-2"
+                  onClick={() => {
+                    setPrompt(fullscreenImage.prompt)
+                    setIsFullscreen(false)
+                    inputRef.current?.focus()
+                  }}
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Regenerate
+                </Button>
+              </div>
+
+              {/* Image metadata */}
+              <div className="flex items-center gap-4 text-xs text-neutral-500">
+                <span>{fullscreenImage.model}</span>
+                <span>•</span>
+                <span>{fullscreenImage.resolution}</span>
+                <span>•</span>
+                <span>{new Date(fullscreenImage.timestamp).toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div >
   )
 }
