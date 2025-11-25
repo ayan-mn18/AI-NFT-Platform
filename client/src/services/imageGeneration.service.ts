@@ -6,8 +6,9 @@
 import axiosInstance from '../lib/axios';
 
 export interface GenerateImageRequest {
-  chatId: string;
+  chatId?: string;
   prompt: string;
+  referenceImage?: string; // base64 or URL for image-to-image
 }
 
 export interface GeneratedImage {
@@ -86,4 +87,5 @@ const imageGenerationService = {
   getUserImages,
 };
 
+export { imageGenerationService };
 export default imageGenerationService;
