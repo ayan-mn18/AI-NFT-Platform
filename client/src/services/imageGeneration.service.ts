@@ -5,10 +5,17 @@
 
 import axiosInstance from '../lib/axios';
 
+// Reference image can be base64 or URL (S3 or external)
+export interface ReferenceImage {
+  type: 'base64' | 'url';
+  data: string; // base64 data (with or without prefix) or URL
+  mimeType?: string; // optional, defaults to 'image/png'
+}
+
 export interface GenerateImageRequest {
-  chatId?: string;
+  chatId: string;
   prompt: string;
-  referenceImage?: string; // base64 or URL for image-to-image
+  referenceImage?: ReferenceImage;
 }
 
 export interface GeneratedImage {
@@ -16,6 +23,7 @@ export interface GeneratedImage {
   imageUrl: string;
   s3Key: string;
   prompt: string;
+  referenceImageId?: string;
   timestamp: Date;
 }
 
@@ -31,8 +39,29 @@ export interface GetImagesResponse {
 }
 
 /**
- * Generate an AI image from a text prompt
- * @param request - Chat ID and prompt
+ * Convert base64 data URL to raw base64 and extract mime type
+ */
+const parseBase64DataUrl = (dataUrl: string): { data: string; mimeType: string } => {
+  // Check if it's a data URL format: data:image/png;base64,xxxxx
+  if (dataUrl.startsWith('data:')) {
+    const matches = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (matches) {
+      return {
+        mimeType: matches[1],
+        data: matches[2],
+      };
+    }
+  }
+  // If not a data URL, assume it's raw base64 PNG
+  return {
+    mimeType: 'image/png',
+    data: dataUrl,
+  };
+};
+
+/**
+ * Generate an AI image from a text prompt with optional reference image
+ * @param request - Chat ID, prompt, and optional reference image
  * @returns Generated image data with URL
  */
 export const generateImage = async (
@@ -43,6 +72,28 @@ export const generateImage = async (
     request
   );
   return response.data.data;
+};
+
+/**
+ * Helper to create a reference image object from a base64 data URL
+ */
+export const createBase64Reference = (base64DataUrl: string): ReferenceImage => {
+  const { data, mimeType } = parseBase64DataUrl(base64DataUrl);
+  return {
+    type: 'base64',
+    data,
+    mimeType,
+  };
+};
+
+/**
+ * Helper to create a reference image object from a URL (S3 or external)
+ */
+export const createUrlReference = (url: string): ReferenceImage => {
+  return {
+    type: 'url',
+    data: url,
+  };
 };
 
 /**
@@ -85,6 +136,8 @@ const imageGenerationService = {
   generateImage,
   getChatImages,
   getUserImages,
+  createBase64Reference,
+  createUrlReference,
 };
 
 export { imageGenerationService };

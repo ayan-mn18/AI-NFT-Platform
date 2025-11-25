@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { Sparkles, ArrowLeft, Zap, Image as ImageIcon, Settings2, Crown, Download, Share2, RefreshCw, Send, ChevronDown, Check, Loader2, Upload, X, ImagePlus, Wand2 } from "lucide-react"
 import { toast } from "sonner"
-import { imageGenerationService } from "@/services/imageGeneration.service"
+import { imageGenerationService, createBase64Reference, createUrlReference, type ReferenceImage as ApiReferenceImage } from "@/services/imageGeneration.service"
 import { chatService } from "@/services/chat.service"
 
 // Demo images
@@ -24,10 +24,13 @@ interface GeneratedImage {
   isReference?: boolean
 }
 
+// Reference image can be from file upload (base64) or from a URL (already generated)
 interface ReferenceImage {
   id: string
-  file: File
+  file?: File // Present when uploaded from local
+  url?: string // Present when using an already generated image
   preview: string
+  type: 'file' | 'url' // Track the source type
 }
 
 interface ImageSettings {
@@ -172,6 +175,7 @@ export default function AuraMintStudioPage() {
       id: `ref-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       file,
       preview: URL.createObjectURL(file),
+      type: 'file' as const,
     }))
 
     setReferenceImages(prev => [...prev, ...newReferenceImages])
@@ -180,13 +184,17 @@ export default function AuraMintStudioPage() {
   const removeReferenceImage = (id: string) => {
     setReferenceImages(prev => {
       const img = prev.find(i => i.id === id)
-      if (img) URL.revokeObjectURL(img.preview)
+      // Only revoke object URL for file-based references
+      if (img && img.type === 'file') URL.revokeObjectURL(img.preview)
       return prev.filter(i => i.id !== id)
     })
   }
 
   const clearAllReferenceImages = () => {
-    referenceImages.forEach(img => URL.revokeObjectURL(img.preview))
+    referenceImages.forEach(img => {
+      // Only revoke object URL for file-based references
+      if (img.type === 'file') URL.revokeObjectURL(img.preview)
+    })
     setReferenceImages([])
   }
 
@@ -256,17 +264,32 @@ export default function AuraMintStudioPage() {
         enhancedPrompt = `${prompt}, in ${settings.style.replace("-", " ")} style`
       }
 
-      // Get reference image as base64 if exists
-      let referenceImageBase64: string | undefined
+      // Build reference image payload if exists
+      let referenceImagePayload: ApiReferenceImage | undefined
       if (referenceImages.length > 0) {
-        referenceImageBase64 = await fileToBase64(referenceImages[0].file)
+        const refImage = referenceImages[0]
+        if (refImage.type === 'file' && refImage.file) {
+          // Convert file to base64 for upload
+          const base64Data = await fileToBase64(refImage.file)
+          referenceImagePayload = createBase64Reference(base64Data)
+        } else if (refImage.type === 'url' && refImage.url) {
+          // Use URL directly (S3 or external)
+          referenceImagePayload = createUrlReference(refImage.url)
+        }
       }
+
+      // Ensure we have a chat ID
+      // if (!chatId) {
+      //   toast.error("Chat session not initialized. Please wait and try again.")
+      //   setIsGenerating(false)
+      //   return
+      // }
 
       for (let i = 0; i < settings.numberOfImages; i++) {
         const result = await imageGenerationService.generateImage({
           prompt: enhancedPrompt,
-          chatId: chatId || undefined,
-          referenceImage: referenceImageBase64,
+          chatId: chatId || "0a089cf6-44cb-4189-9dd1-07da83d06508",
+          referenceImage: referenceImagePayload,
         })
 
         const newImage: GeneratedImage = {
@@ -288,7 +311,7 @@ export default function AuraMintStudioPage() {
       setPrompt("")
     } catch (error: any) {
       console.error("Generation failed:", error)
-      toast.error(error.response?.data?.message || "Failed to generate image")
+      toast.error(error.response?.data?.error || error.message || "Failed to generate image")
     } finally {
       setIsGenerating(false)
     }
@@ -336,20 +359,15 @@ export default function AuraMintStudioPage() {
   }
 
   const handleUseAsReference = (image: GeneratedImage) => {
-    // Create a fake file from the image URL for reference
-    fetch(image.url)
-      .then(res => res.blob())
-      .then(blob => {
-        const file = new File([blob], `reference-${image.id}.png`, { type: "image/png" })
-        const newRef: ReferenceImage = {
-          id: `ref-${Date.now()}`,
-          file,
-          preview: image.url,
-        }
-        setReferenceImages(prev => [...prev.slice(0, 3), newRef])
-        toast.success("Image added as reference")
-      })
-      .catch(() => toast.error("Failed to use as reference"))
+    // Use the image URL directly as reference (more efficient for S3 images)
+    const newRef: ReferenceImage = {
+      id: `ref-${Date.now()}`,
+      url: image.url,
+      preview: image.url,
+      type: 'url' as const,
+    }
+    setReferenceImages(prev => [...prev.slice(0, 3), newRef])
+    toast.success("Image added as reference")
   }
 
   const selectedModel = MODELS.find(m => m.id === settings.model) || MODELS[0]

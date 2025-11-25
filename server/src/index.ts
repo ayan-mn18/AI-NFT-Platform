@@ -37,8 +37,8 @@ app.use(helmet());
 app.use(corsConfig);
 
 // Request parsing middleware
-app.use(express.json({ limit: '10kb' }));
-app.use(express.urlencoded({ limit: '10kb', extended: true }));
+app.use(express.json({ limit: '50mb' })); // Increased for base64 image uploads
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cookieParser());
 
 // Logging middleware
