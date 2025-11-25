@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 import { useAuth } from "@/context/AuthContext"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
-import { Sparkles, ArrowLeft, Zap, Image, Settings2, Crown, Download, Share2, RefreshCw, Send, ChevronDown, Check, Loader2 } from "lucide-react"
+import { Sparkles, ArrowLeft, Zap, Image as ImageIcon, Settings2, Crown, Download, Share2, RefreshCw, Send, ChevronDown, Check, Loader2, Upload, X, ImagePlus, Wand2 } from "lucide-react"
 import { toast } from "sonner"
 import { imageGenerationService } from "@/services/imageGeneration.service"
 import { chatService } from "@/services/chat.service"
@@ -21,6 +21,13 @@ interface GeneratedImage {
   timestamp: Date
   model: string
   resolution: string
+  isReference?: boolean
+}
+
+interface ReferenceImage {
+  id: string
+  file: File
+  preview: string
 }
 
 interface ImageSettings {
@@ -53,11 +60,12 @@ const STYLES = [
   { id: "pixel-art", label: "Pixel Art" },
 ]
 
-export default function CookNFTPage() {
+export default function AuraMintStudioPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Settings state
   const [settings, setSettings] = useState<ImageSettings>({
@@ -93,54 +101,6 @@ export default function CookNFTPage() {
       model: "gemini-2.5-pro",
       resolution: "1024x1024",
     },
-    {
-      id: "demo-1",
-      url: wolfAstronaut,
-      prompt: "A majestic wolf astronaut floating in space with Earth in the background, digital art style",
-      timestamp: new Date(),
-      model: "gemini-2.5-flash",
-      resolution: "1024x1024",
-    },
-    {
-      id: "demo-2",
-      url: wolf1,
-      prompt: "A fierce wolf with glowing eyes in a mystical forest, fantasy art",
-      timestamp: new Date(Date.now() - 60000),
-      model: "gemini-2.5-flash",
-      resolution: "1024x1024",
-    },
-    {
-      id: "demo-3",
-      url: wolf2,
-      prompt: "A cyberpunk wolf with neon accents in a futuristic city, vibrant colors",
-      timestamp: new Date(Date.now() - 120000),
-      model: "gemini-2.5-pro",
-      resolution: "1024x1024",
-    },
-    {
-      id: "demo-1",
-      url: wolfAstronaut,
-      prompt: "A majestic wolf astronaut floating in space with Earth in the background, digital art style",
-      timestamp: new Date(),
-      model: "gemini-2.5-flash",
-      resolution: "1024x1024",
-    },
-    {
-      id: "demo-2",
-      url: wolf1,
-      prompt: "A fierce wolf with glowing eyes in a mystical forest, fantasy art",
-      timestamp: new Date(Date.now() - 60000),
-      model: "gemini-2.5-flash",
-      resolution: "1024x1024",
-    },
-    {
-      id: "demo-3",
-      url: wolf2,
-      prompt: "A cyberpunk wolf with neon accents in a futuristic city, vibrant colors",
-      timestamp: new Date(Date.now() - 120000),
-      model: "gemini-2.5-pro",
-      resolution: "1024x1024",
-    },
   ]
 
   // Generation state
@@ -148,6 +108,12 @@ export default function CookNFTPage() {
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>(demoImages)
   const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(demoImages[0])
+
+  // Reference images for image-to-image
+  const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([])
+  const [isDragging, setIsDragging] = useState(false)
+  const dragCounter = useRef(0)
+  const [generationMode, setGenerationMode] = useState<"text-to-image" | "image-to-image">("text-to-image")
 
   // Credits & rate limiting
   const [credits, setCredits] = useState(97)
@@ -162,16 +128,20 @@ export default function CookNFTPage() {
   // Chat session for image generation
   const [chatId, setChatId] = useState<string | null>(null)
 
+  // Update mode based on reference images
   useEffect(() => {
-    // Create or get a chat session for image generation
+    setGenerationMode(referenceImages.length > 0 ? "image-to-image" : "text-to-image")
+  }, [referenceImages])
+
+  useEffect(() => {
     const initChat = async () => {
       try {
         const chats = await chatService.getChats()
-        const imageChat = chats.find(c => c.title === "Image Generation Studio")
+        const imageChat = chats.find(c => c.title === "AuraMint Studio")
         if (imageChat) {
           setChatId(imageChat.id)
         } else {
-          const newChat = await chatService.createChat("Image Generation Studio")
+          const newChat = await chatService.createChat("AuraMint Studio")
           setChatId(newChat.id)
         }
       } catch (error) {
@@ -180,6 +150,87 @@ export default function CookNFTPage() {
     }
     initChat()
   }, [])
+
+  // File handling
+  const handleFiles = useCallback((files: FileList | null) => {
+    if (!files) return
+
+    const validFiles = Array.from(files).filter(file => {
+      const isValid = file.type === "image/jpeg" || file.type === "image/png"
+      if (!isValid) {
+        toast.error(`${file.name} is not a valid image. Only JPEG and PNG are allowed.`)
+      }
+      return isValid
+    })
+
+    if (referenceImages.length + validFiles.length > 4) {
+      toast.error("Maximum 4 reference images allowed")
+      return
+    }
+
+    const newReferenceImages: ReferenceImage[] = validFiles.map(file => ({
+      id: `ref-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      file,
+      preview: URL.createObjectURL(file),
+    }))
+
+    setReferenceImages(prev => [...prev, ...newReferenceImages])
+  }, [referenceImages.length])
+
+  const removeReferenceImage = (id: string) => {
+    setReferenceImages(prev => {
+      const img = prev.find(i => i.id === id)
+      if (img) URL.revokeObjectURL(img.preview)
+      return prev.filter(i => i.id !== id)
+    })
+  }
+
+  const clearAllReferenceImages = () => {
+    referenceImages.forEach(img => URL.revokeObjectURL(img.preview))
+    setReferenceImages([])
+  }
+
+  // Drag and drop handlers
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounter.current++
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounter.current--
+    if (dragCounter.current === 0) {
+      setIsDragging(false)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounter.current = 0
+    setIsDragging(false)
+    handleFiles(e.dataTransfer.files)
+  }
+
+  // Convert file to base64
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = error => reject(error)
+    })
+  }
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
@@ -200,17 +251,22 @@ export default function CookNFTPage() {
     setIsGenerating(true)
 
     try {
-      // Build the enhanced prompt with style
       let enhancedPrompt = prompt
       if (settings.style !== "none") {
         enhancedPrompt = `${prompt}, in ${settings.style.replace("-", " ")} style`
       }
 
-      // Generate images
+      // Get reference image as base64 if exists
+      let referenceImageBase64: string | undefined
+      if (referenceImages.length > 0) {
+        referenceImageBase64 = await fileToBase64(referenceImages[0].file)
+      }
+
       for (let i = 0; i < settings.numberOfImages; i++) {
         const result = await imageGenerationService.generateImage({
           prompt: enhancedPrompt,
           chatId: chatId || undefined,
+          referenceImage: referenceImageBase64,
         })
 
         const newImage: GeneratedImage = {
@@ -279,6 +335,23 @@ export default function CookNFTPage() {
     }
   }
 
+  const handleUseAsReference = (image: GeneratedImage) => {
+    // Create a fake file from the image URL for reference
+    fetch(image.url)
+      .then(res => res.blob())
+      .then(blob => {
+        const file = new File([blob], `reference-${image.id}.png`, { type: "image/png" })
+        const newRef: ReferenceImage = {
+          id: `ref-${Date.now()}`,
+          file,
+          preview: image.url,
+        }
+        setReferenceImages(prev => [...prev.slice(0, 3), newRef])
+        toast.success("Image added as reference")
+      })
+      .catch(() => toast.error("Failed to use as reference"))
+  }
+
   const selectedModel = MODELS.find(m => m.id === settings.model) || MODELS[0]
   const selectedResolution = RESOLUTIONS.find(r => r.id === settings.resolution) || RESOLUTIONS[0]
   const selectedStyle = STYLES.find(s => s.id === settings.style) || STYLES[0]
@@ -291,6 +364,16 @@ export default function CookNFTPage() {
         <div className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-blue-500/30 rounded-full blur-[120px]" />
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-indigo-500/20 rounded-full blur-[100px]" />
       </div>
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png"
+        multiple
+        className="hidden"
+        onChange={e => handleFiles(e.target.files)}
+      />
 
       {/* Left Panel - Settings */}
       <aside className="w-72 border-r border-white/10 bg-neutral-900/50 backdrop-blur-sm flex flex-col shrink-0 relative z-10">
@@ -306,14 +389,33 @@ export default function CookNFTPage() {
           </Button>
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 bg-linear-to-tr from-purple-600 to-indigo-600 rounded-md flex items-center justify-center">
-              <Image className="w-3.5 h-3.5 text-white" />
+              <Wand2 className="w-3.5 h-3.5 text-white" />
             </div>
-            <span className="font-semibold text-sm">Cook NFT</span>
+            <span className="font-semibold text-sm">Studio</span>
           </div>
         </div>
 
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-6">
+            {/* Generation Mode Indicator */}
+            <div className="p-3 rounded-xl border border-white/10 bg-neutral-800/30">
+              <div className="flex items-center gap-2 mb-2">
+                {generationMode === "text-to-image" ? (
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                ) : (
+                  <ImagePlus className="w-4 h-4 text-blue-400" />
+                )}
+                <span className="text-xs font-medium uppercase tracking-wider text-neutral-300">
+                  {generationMode === "text-to-image" ? "Text to Image" : "Image to Image"}
+                </span>
+              </div>
+              <p className="text-xs text-neutral-500">
+                {generationMode === "text-to-image"
+                  ? "Generate images from your text description"
+                  : "Edit or create variations using reference images"}
+              </p>
+            </div>
+
             {/* Model Selection */}
             <div className="space-y-2">
               <label className="text-xs font-medium text-neutral-400 uppercase tracking-wider flex items-center gap-2">
@@ -464,22 +566,32 @@ export default function CookNFTPage() {
               AuraMint Studio
             </span>
           </div>
+          {/* Mode Toggle */}
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-neutral-800/50 rounded-full border border-white/10">
+            <span className={`text-xs font-medium ${generationMode === "text-to-image" ? "text-purple-400" : "text-neutral-500"}`}>
+              Text
+            </span>
+            <div className="w-px h-3 bg-white/20" />
+            <span className={`text-xs font-medium ${generationMode === "image-to-image" ? "text-blue-400" : "text-neutral-500"}`}>
+              Image
+            </span>
+          </div>
         </header>
 
         {/* Image Display / Generation Area */}
         <div className="flex-1 overflow-hidden">
           <ScrollArea className="h-full">
-            <div className="max-w-4xl mx-auto p-6 pb-32">
+            <div className="max-w-4xl mx-auto p-6 pb-48">
               {generatedImages.length === 0 ? (
                 /* Empty State */
                 <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-6">
                   <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center backdrop-blur-sm border border-white/10 shadow-lg">
-                    <Image className="w-10 h-10 text-white/60" />
+                    <ImageIcon className="w-10 h-10 text-white/60" />
                   </div>
                   <div className="space-y-3">
                     <h3 className="text-2xl font-semibold text-white">Create Amazing NFT Art</h3>
                     <p className="text-neutral-400 max-w-md mx-auto leading-relaxed">
-                      Describe your vision and let AI bring it to life. Choose your style, resolution, and model settings on the left panel.
+                      Describe your vision and let AI bring it to life. Upload reference images for image-to-image generation.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2 justify-center max-w-lg">
@@ -513,6 +625,7 @@ export default function CookNFTPage() {
                             size="icon"
                             className="h-12 w-12 rounded-full bg-white/10 hover:bg-white/20 text-white"
                             onClick={() => handleDownload(selectedImage)}
+                            title="Download"
                           >
                             <Download className="w-5 h-5" />
                           </Button>
@@ -521,6 +634,7 @@ export default function CookNFTPage() {
                             size="icon"
                             className="h-12 w-12 rounded-full bg-white/10 hover:bg-white/20 text-white"
                             onClick={() => handleShare(selectedImage)}
+                            title="Copy URL"
                           >
                             <Share2 className="w-5 h-5" />
                           </Button>
@@ -529,8 +643,18 @@ export default function CookNFTPage() {
                             size="icon"
                             className="h-12 w-12 rounded-full bg-white/10 hover:bg-white/20 text-white"
                             onClick={handleRegenerate}
+                            title="Regenerate"
                           >
                             <RefreshCw className="w-5 h-5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-12 w-12 rounded-full bg-blue-500/20 hover:bg-blue-500/30 text-blue-300"
+                            onClick={() => handleUseAsReference(selectedImage)}
+                            title="Use as Reference"
+                          >
+                            <ImagePlus className="w-5 h-5" />
                           </Button>
                         </div>
                       </div>
@@ -545,9 +669,9 @@ export default function CookNFTPage() {
                     <div>
                       <h4 className="text-sm font-medium text-neutral-400 mb-3">Previous Generations</h4>
                       <div className="grid grid-cols-4 gap-3">
-                        {generatedImages.map(img => (
+                        {generatedImages.map((img, idx) => (
                           <button
-                            key={img.id}
+                            key={`${img.id}-${idx}`}
                             onClick={() => setSelectedImage(img)}
                             className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${selectedImage?.id === img.id
                               ? "border-purple-500 ring-2 ring-purple-500/30"
@@ -571,52 +695,121 @@ export default function CookNFTPage() {
           </ScrollArea>
         </div>
 
-        {/* Input Area */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 bg-linear-to-t from-neutral-950 via-neutral-950 to-transparent z-20">
-          <div className="max-w-3xl mx-auto">
-            <div className="relative flex items-end gap-2 bg-neutral-900/80 backdrop-blur-sm border border-white/10 rounded-2xl p-2 shadow-xl">
-              <textarea
-                ref={inputRef}
-                value={prompt}
-                onChange={e => setPrompt(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Describe the NFT you want to create..."
-                rows={1}
-                disabled={isGenerating}
-                className="flex-1 bg-transparent text-white placeholder:text-neutral-500 resize-none px-3 py-2.5 text-sm focus:outline-none min-h-11 max-h-32"
-                style={{ height: "auto", overflow: "hidden" }}
-                onInput={e => {
-                  const target = e.target as HTMLTextAreaElement
-                  target.style.height = "auto"
-                  target.style.height = Math.min(target.scrollHeight, 128) + "px"
-                }}
-              />
-              <Button
-                onClick={handleGenerate}
-                disabled={isGenerating || !prompt.trim()}
-                className="h-10 px-4 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-              >
-                {isGenerating ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-              </Button>
+        {/* Input Area with Image Upload */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 bg-linear-to-t from-neutral-950 via-neutral-950/95 to-transparent z-20">
+          <div className="max-w-3xl mx-auto space-y-3">
+            {/* Reference Images Preview */}
+            {referenceImages.length > 0 && (
+              <div className="flex items-center gap-2 p-2 bg-neutral-900/80 backdrop-blur-sm border border-white/10 rounded-xl">
+                <div className="flex gap-2 flex-1 overflow-x-auto py-1">
+                  {referenceImages.map(img => (
+                    <div key={img.id} className="relative group shrink-0">
+                      <img
+                        src={img.preview}
+                        alt="Reference"
+                        className="w-16 h-16 rounded-lg object-cover border border-white/10"
+                      />
+                      <button
+                        onClick={() => removeReferenceImage(img.id)}
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 hover:bg-red-400 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-3 h-3 text-white" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={clearAllReferenceImages}
+                  className="text-xs text-neutral-400 hover:text-white px-2 py-1 hover:bg-white/5 rounded transition-colors shrink-0"
+                >
+                  Clear all
+                </button>
+              </div>
+            )}
+
+            {/* Drop Zone / Upload Area */}
+            <div
+              onDragEnter={handleDragEnter}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`relative transition-transform duration-200 ease-out ${isDragging ? "scale-[1.02]" : "scale-100"}`}
+            >
+              {isDragging && (
+                <div className="absolute inset-0 bg-purple-500/10 border-2 border-dashed border-purple-500/50 rounded-2xl flex items-center justify-center z-30 backdrop-blur-sm">
+                  <div className="text-center">
+                    <Upload className="w-8 h-8 text-purple-400 mx-auto mb-2" />
+                    <p className="text-sm text-purple-300">Drop images here</p>
+                    <p className="text-xs text-neutral-400 mt-1">JPEG or PNG only</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="relative flex items-center gap-3 bg-neutral-900/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 py-3 shadow-xl">
+                {/* Upload Button */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-20 w-20 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white shrink-0"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Upload reference images"
+                >
+                  <Upload className="w-5 h-5" />
+                </Button>
+
+                <textarea
+                  ref={inputRef}
+                  value={prompt}
+                  onChange={e => setPrompt(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={
+                    referenceImages.length > 0
+                      ? "Describe how to edit or transform the image..."
+                      : "Describe the NFT you want to create..."
+                  }
+                  rows={1}
+                  disabled={isGenerating}
+                  className="flex-1 bg-transparent text-white placeholder:text-neutral-500 resize-none py-3 text-sm focus:outline-none min-h-12 max-h-32 leading-normal"
+                  style={{ overflow: "hidden" }}
+                  onInput={e => {
+                    const target = e.target as HTMLTextAreaElement
+                    target.style.height = "auto"
+                    target.style.height = Math.min(target.scrollHeight, 128) + "px"
+                  }}
+                />
+                <Button
+                  onClick={handleGenerate}
+                  disabled={isGenerating || !prompt.trim()}
+                  className="h-12 w-12 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                >
+                  {isGenerating ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Send className="w-5 h-5" />
+                  )}
+                </Button>
+              </div>
             </div>
-            <p className="text-xs text-center text-neutral-500 mt-2">
-              Press Enter to generate • Shift+Enter for new line
+
+            <p className="text-xs text-center text-neutral-500">
+              {referenceImages.length > 0 ? (
+                <span className="text-blue-400">Image-to-Image mode</span>
+              ) : (
+                "Drop images or click upload for image-to-image"
+              )}
+              {" • "}Enter to generate • Shift+Enter for new line
             </p>
           </div>
         </div>
-      </main>
+      </main >
 
       {/* Right Panel - Credits & Rate Limiting */}
-      <aside className="w-64 border-l border-white/10 bg-neutral-900/50 backdrop-blur-sm flex flex-col shrink-0 relative z-10">
+      < aside className="w-64 border-l border-white/10 bg-neutral-900/50 backdrop-blur-sm flex flex-col shrink-0 relative z-10" >
         {/* Header */}
-        <div className="h-14 border-b border-white/10 flex items-center px-4 gap-2">
+        <div className="h-14 border-b border-white/10 flex items-center px-4 gap-2" >
           <Zap className="w-4 h-4 text-yellow-400" />
           <span className="font-semibold text-sm">Usage & Credits</span>
-        </div>
+        </div >
 
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-6">
@@ -698,8 +891,8 @@ export default function CookNFTPage() {
                   <div className="text-xs text-neutral-500">Generated</div>
                 </div>
                 <div className="p-3 bg-neutral-800/50 rounded-xl border border-white/5 text-center">
-                  <div className="text-lg font-bold text-white">{settings.numberOfImages}</div>
-                  <div className="text-xs text-neutral-500">Per request</div>
+                  <div className="text-lg font-bold text-white">{referenceImages.length}</div>
+                  <div className="text-xs text-neutral-500">References</div>
                 </div>
               </div>
             </div>
@@ -716,7 +909,7 @@ export default function CookNFTPage() {
             Manage Subscription
           </Button>
         </div>
-      </aside>
-    </div>
+      </aside >
+    </div >
   )
 }

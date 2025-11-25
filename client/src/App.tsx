@@ -4,7 +4,7 @@ import { AuthProvider } from "@/context/AuthContext"
 import ProtectedRoute from "@/components/ProtectedRoute"
 import LandingPage from "./pages/LandingPage"
 import NFTGenPage from "./pages/NFTGenPage"
-import CookNFTPage from "./pages/CookNFTPage"
+import AuraMintStudioPage from "./pages/AuraMintStudioPage"
 import RegisterPage from "./pages/RegisterPage"
 import LoginPage from "./pages/LoginPage"
 
@@ -22,7 +22,7 @@ function App() {
           {/* Protected Routes */}
           <Route element={<ProtectedRoute />}>
             <Route path="/nft-gen" element={<NFTGenPage />} />
-            <Route path="/cook-nft" element={<CookNFTPage />} />
+            <Route path="/auramint-studio" element={<AuraMintStudioPage />} />
             <Route path="/profile" element={<ProfilePage />} />
           </Route>
         </Routes>
