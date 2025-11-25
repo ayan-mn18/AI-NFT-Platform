@@ -12,6 +12,7 @@ AuraMint is a modern platform for generating and minting NFTs using AI. It featu
 ## Screenshots
 
 ![Dashboard](client/public/Screenshot%202025-11-22%20at%204.17.37%E2%80%AFPM.png)
+![AuraMint Studios](client/public/AuraMint-Studios.png)
 ![Chat Interface](client/public/Screenshot%202025-11-22%20at%204.17.44%E2%80%AFPM.png)
 ![Generation](client/public/Screenshot%202025-11-22%20at%204.17.51%E2%80%AFPM.png)
 ![Profile](client/public/Screenshot%202025-11-22%20at%204.18.14%E2%80%AFPM.png)
